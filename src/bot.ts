@@ -1,4 +1,4 @@
-import pkg from 'discord.js';
+import * as pkg from 'discord.js';
 const { 
   Client, 
   GatewayIntentBits, 
@@ -15,8 +15,7 @@ const {
   TextInputBuilder,
   TextInputStyle,
   StringSelectMenuBuilder,
-  StringSelectMenuOptionBuilder,
-  GuildMember
+  StringSelectMenuOptionBuilder
 } = pkg;
 import db from './database.ts';
 import dotenv from 'dotenv';
@@ -60,6 +59,10 @@ const commands = [
     .addRoleOption(opt => opt.setName('رتبة-مسؤول-الاجازات').setDescription('رتبة مسؤول قبول الإجازات'))
     .addRoleOption(opt => opt.setName('رتبة-مسؤول-الاستقالة').setDescription('رتبة مسؤول الاستقالة'))
     .setDefaultMemberPermissions(PermissionFlagsBits.Administrator),
+
+  new SlashCommandBuilder()
+    .setName('ping')
+    .setDescription('عرض سرعة استجابة البوت'),
 ].map(command => command.toJSON());
 
 // Register commands
@@ -106,6 +109,11 @@ client.on('interactionCreate', async (interaction: any) => {
       await interaction.reply({ content: '✅ تم تحديث رتب المسؤولين بنجاح.', ephemeral: true });
     }
 
+    if (commandName === 'ping') {
+      const latency = Math.round(client.ws.ping);
+      await interaction.reply({ content: `🏓 سرعة استجابة البوت هي: **${latency}ms**`, ephemeral: true });
+    }
+
     if (commandName === 'طلب-اجازة') {
       const title = options.getString('عنوان-الايمبد');
       const desc = options.getString('وصف-الايمبد');
@@ -126,7 +134,7 @@ client.on('interactionCreate', async (interaction: any) => {
         .setColor('#2b2d31')
         .setImage('https://cdn.discordapp.com/attachments/1373379066127716454/1480947656787492934/29c156efac6e235a.jpg?ex=69b1877c&is=69b035fc&hm=8a610c2c2c4babc6a4a91f3355412582e774148418004142c3c17e2c4e1eb9e8&');
 
-      const row = new ActionRowBuilder<ButtonBuilder>().addComponents(
+      const row = new ActionRowBuilder<any>().addComponents(
         new ButtonBuilder()
           .setCustomId(`request_leave_${requestChannel?.id}`)
           .setLabel('طــلـب اجــازة')
@@ -167,8 +175,8 @@ client.on('interactionCreate', async (interaction: any) => {
         .setRequired(true);
 
       modal.addComponents(
-        new ActionRowBuilder<TextInputBuilder>().addComponents(durationInput),
-        new ActionRowBuilder<TextInputBuilder>().addComponents(reasonInput)
+        new ActionRowBuilder<any>().addComponents(durationInput),
+        new ActionRowBuilder<any>().addComponents(reasonInput)
       );
 
       await interaction.showModal(modal);
@@ -214,7 +222,7 @@ client.on('interactionCreate', async (interaction: any) => {
               .setEmoji('1480943473606529288')
           );
 
-        const row = new ActionRowBuilder<StringSelectMenuBuilder>().addComponents(select);
+        const row = new ActionRowBuilder<any>().addComponents(select);
 
         await (channel as any).send({ embeds: [embed], components: [row] });
         await interaction.reply({ content: '✅ تم إرسال طلبك للمسؤولين.', ephemeral: true });
@@ -229,7 +237,7 @@ client.on('interactionCreate', async (interaction: any) => {
       const guildId = interaction.guildId!;
       
       const settings: any = db.prepare('SELECT * FROM settings WHERE guildId = ?').get(guildId);
-      const member = interaction.member as GuildMember;
+      const member = interaction.member as any;
 
       if (!member.permissions.has(PermissionFlagsBits.Administrator) && !member.roles.cache.has(settings?.leaveManagerRoleId)) {
         return interaction.reply({ content: '❌ ليس لديك صلاحية اتخاذ هذا القرار.', ephemeral: true });
@@ -286,7 +294,7 @@ client.on('interactionCreate', async (interaction: any) => {
             `)
             .setColor('#2b2d31');
 
-          const cancelRow = new ActionRowBuilder<ButtonBuilder>().addComponents(
+          const cancelRow = new ActionRowBuilder<any>().addComponents(
             new ButtonBuilder()
               .setCustomId(`cancel_leave_${userId}`)
               .setLabel('الــغــاء الإجــازة')
@@ -318,7 +326,7 @@ client.on('interactionCreate', async (interaction: any) => {
       const userId = interaction.customId.split('_')[2];
       const guildId = interaction.guildId!;
       const settings: any = db.prepare('SELECT * FROM settings WHERE guildId = ?').get(guildId);
-      const member = interaction.member as GuildMember;
+      const member = interaction.member as any;
 
       if (!member.permissions.has(PermissionFlagsBits.Administrator) && !member.roles.cache.has(settings?.leaveManagerRoleId)) {
         return interaction.reply({ content: '❌ ليس لديك صلاحية إلغاء الإجازة.', ephemeral: true });
