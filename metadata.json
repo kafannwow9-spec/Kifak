@@ -1,0 +1,5 @@
+{
+  "name": "Discord Leave & Resignation Bot",
+  "description": "A Discord bot to manage leave requests and resignations with automated nickname changes and logging.",
+  "requestFramePermissions": []
+}
