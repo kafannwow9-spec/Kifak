@@ -1,4 +1,5 @@
-import { 
+import pkg from 'discord.js';
+const { 
   Client, 
   GatewayIntentBits, 
   Partials, 
@@ -15,9 +16,8 @@ import {
   TextInputStyle,
   StringSelectMenuBuilder,
   StringSelectMenuOptionBuilder,
-  Interaction,
   GuildMember
-} from 'discord.js';
+} = pkg;
 import db from './database.ts';
 import dotenv from 'dotenv';
 
@@ -32,6 +32,10 @@ const client = new Client({
 });
 
 const TOKEN = process.env.DISCORD_TOKEN;
+
+if (!TOKEN) {
+  console.error("❌ ERROR: DISCORD_TOKEN is not defined in environment variables!");
+}
 
 // Commands definition
 const commands = [
@@ -82,7 +86,7 @@ client.on('guildCreate', (guild) => {
   registerCommands(guild.id);
 });
 
-client.on('interactionCreate', async (interaction: Interaction) => {
+client.on('interactionCreate', async (interaction: any) => {
   if (interaction.isChatInputCommand()) {
     const { commandName, guildId, options } = interaction;
     if (!guildId) return;
