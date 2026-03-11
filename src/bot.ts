@@ -125,10 +125,11 @@ client.on('interactionCreate', async (interaction: any) => {
       const logChannel = options.getChannel('لوق-الاستقالات');
 
       db.prepare(`
-        UPDATE settings SET 
-          resignationLogChannelId = ?
-        WHERE guildId = ?
-      `).run(logChannel?.id, guildId);
+        INSERT INTO settings (guildId, resignationLogChannelId)
+        VALUES (?, ?)
+        ON CONFLICT(guildId) DO UPDATE SET
+          resignationLogChannelId = excluded.resignationLogChannelId
+      `).run(guildId, logChannel?.id);
 
       const embed = new EmbedBuilder()
         .setTitle(title)
@@ -154,11 +155,12 @@ client.on('interactionCreate', async (interaction: any) => {
       const logChannel = options.getChannel('لوق-الإجازات');
 
       db.prepare(`
-        UPDATE settings SET 
-          leaveLogChannelId = ?, 
-          leavePublicChannelId = ? 
-        WHERE guildId = ?
-      `).run(logChannel?.id, publicChannel?.id, guildId);
+        INSERT INTO settings (guildId, leaveLogChannelId, leavePublicChannelId)
+        VALUES (?, ?, ?)
+        ON CONFLICT(guildId) DO UPDATE SET
+          leaveLogChannelId = excluded.leaveLogChannelId,
+          leavePublicChannelId = excluded.leavePublicChannelId
+      `).run(guildId, logChannel?.id, publicChannel?.id);
 
       const embed = new EmbedBuilder()
         .setTitle(title)
@@ -277,7 +279,7 @@ client.on('interactionCreate', async (interaction: any) => {
         }
       }
 
-      const logChannel = client.channels.cache.get(settings?.leaveLogChannelId);
+      const logChannel = client.channels.cache.get(settings?.leaveLogChannelId) || await client.channels.fetch(settings?.leaveLogChannelId).catch(() => null);
       if (logChannel?.isTextBased()) {
         const embed = new EmbedBuilder()
           .setTitle(`**__ إلــغــاء إجــازة <@${userId}>__**`)
@@ -405,7 +407,7 @@ client.on('interactionCreate', async (interaction: any) => {
         await interaction.message.delete();
         await interaction.reply({ content: '❌ تم رفض طلب الاستقالة.', ephemeral: true });
 
-        const logChannel = client.channels.cache.get(settings?.resignationLogChannelId);
+        const logChannel = client.channels.cache.get(settings?.resignationLogChannelId) || await client.channels.fetch(settings?.resignationLogChannelId).catch(() => null);
         if (logChannel?.isTextBased()) {
           const embed = new EmbedBuilder()
             .setTitle(`**__ رفــض طــلـب اســتـقـالة <@${userId}>__**`)
@@ -431,7 +433,7 @@ client.on('interactionCreate', async (interaction: any) => {
       if (action === 'accept') {
         db.prepare('DELETE FROM pending_resignations WHERE userId = ? AND guildId = ?').run(userId, guildId);
         
-        const logChannel = client.channels.cache.get(settings?.resignationLogChannelId);
+        const logChannel = client.channels.cache.get(settings?.resignationLogChannelId) || await client.channels.fetch(settings?.resignationLogChannelId).catch(() => null);
         if (logChannel?.isTextBased()) {
           const embed = new EmbedBuilder()
             .setTitle(`**__ قــبـول طــلـب اســتـقـالة <@${userId}>__**`)
@@ -479,7 +481,7 @@ client.on('interactionCreate', async (interaction: any) => {
         await interaction.reply({ content: '❌ تم رفض الطلب.', ephemeral: true });
 
         // Logging rejection
-        const logChannel = client.channels.cache.get(settings?.leaveLogChannelId);
+        const logChannel = client.channels.cache.get(settings?.leaveLogChannelId) || await client.channels.fetch(settings?.leaveLogChannelId).catch(() => null);
         if (logChannel?.isTextBased()) {
           const embed = new EmbedBuilder()
             .setTitle(`**__ رفــض طــلـب إجــازة <@${userId}>__**`)
@@ -521,7 +523,7 @@ client.on('interactionCreate', async (interaction: any) => {
           console.error('Failed to set nickname:', e);
         }
 
-        const publicChannel = client.channels.cache.get(settings?.leavePublicChannelId);
+        const publicChannel = client.channels.cache.get(settings?.leavePublicChannelId) || await client.channels.fetch(settings?.leavePublicChannelId).catch(() => null);
         let leaveMsgId = '';
         let imgMsgId = '';
 
@@ -558,7 +560,7 @@ client.on('interactionCreate', async (interaction: any) => {
         `).run(guildId, userId, originalNickname, endTimestamp, leaveMsgId, settings?.leavePublicChannelId, imgMsgId);
 
         // Logging acceptance
-        const logChannel = client.channels.cache.get(settings?.leaveLogChannelId);
+        const logChannel = client.channels.cache.get(settings?.leaveLogChannelId) || await client.channels.fetch(settings?.leaveLogChannelId).catch(() => null);
         if (logChannel?.isTextBased()) {
           const embed = new EmbedBuilder()
             .setTitle(`**__ قــبـول طــلـب إجــازة <@${userId}>__**`)
@@ -603,7 +605,7 @@ async function checkExpiredLeaves() {
       } catch (e) {}
     }
 
-    const channel = client.channels.cache.get(leave.leaveChannelId);
+    const channel = client.channels.cache.get(leave.leaveChannelId) || await client.channels.fetch(leave.leaveChannelId).catch(() => null);
     if (channel?.isTextBased()) {
       try {
         if (leave.leaveMessageId) {
@@ -617,7 +619,7 @@ async function checkExpiredLeaves() {
       } catch (e) {}
     }
 
-    const logChannel = client.channels.cache.get(settings?.leaveLogChannelId);
+    const logChannel = client.channels.cache.get(settings?.leaveLogChannelId) || await client.channels.fetch(settings?.leaveLogChannelId).catch(() => null);
     if (logChannel?.isTextBased()) {
       const embed = new EmbedBuilder()
         .setTitle(`**__ انـتـهـاء إجــازة <@${leave.userId}>__**`)
