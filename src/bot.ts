@@ -127,9 +127,8 @@ client.on('interactionCreate', async (interaction: any) => {
       db.prepare(`
         INSERT INTO settings (guildId, resignationLogChannelId)
         VALUES (?, ?)
-        ON CONFLICT(guildId) DO UPDATE SET
-          resignationLogChannelId = excluded.resignationLogChannelId
-      `).run(guildId, logChannel?.id);
+        ON CONFLICT(guildId) DO UPDATE SET resignationLogChannelId = ?
+      `).run(guildId, logChannel?.id, logChannel?.id);
 
       const embed = new EmbedBuilder()
         .setTitle(title)
@@ -157,10 +156,10 @@ client.on('interactionCreate', async (interaction: any) => {
       db.prepare(`
         INSERT INTO settings (guildId, leaveLogChannelId, leavePublicChannelId)
         VALUES (?, ?, ?)
-        ON CONFLICT(guildId) DO UPDATE SET
-          leaveLogChannelId = excluded.leaveLogChannelId,
-          leavePublicChannelId = excluded.leavePublicChannelId
-      `).run(guildId, logChannel?.id, publicChannel?.id);
+        ON CONFLICT(guildId) DO UPDATE SET 
+          leaveLogChannelId = ?, 
+          leavePublicChannelId = ?
+      `).run(guildId, logChannel?.id, publicChannel?.id, logChannel?.id, publicChannel?.id);
 
       const embed = new EmbedBuilder()
         .setTitle(title)
@@ -249,7 +248,10 @@ client.on('interactionCreate', async (interaction: any) => {
       const settings: any = db.prepare('SELECT * FROM settings WHERE guildId = ?').get(guildId);
       const member = interaction.member as any;
 
-      if (!member.permissions.has(PermissionFlagsBits.Administrator) && !member.roles.cache.has(settings?.leaveManagerRoleId)) {
+      const canManage = member.permissions.has(PermissionFlagsBits.Administrator) || 
+                        (settings?.leaveManagerRoleId && member.roles.cache.has(settings.leaveManagerRoleId));
+
+      if (!canManage) {
         return interaction.reply({ content: '❌ ليس لديك صلاحية إلغاء الإجازة.', ephemeral: true });
       }
 
@@ -257,10 +259,17 @@ client.on('interactionCreate', async (interaction: any) => {
       if (!leave) return interaction.reply({ content: '❌ لم يتم العثور على إجازة نشطة لهذا العضو.', ephemeral: true });
 
       const targetMember = await interaction.guild?.members.fetch(userId).catch(() => null);
+      let nicknameError = false;
       if (targetMember) {
         try {
-          await targetMember.setNickname(leave.originalNickname);
-        } catch (e) {}
+          if (targetMember.manageable) {
+            await targetMember.setNickname(null);
+          } else {
+            nicknameError = true;
+          }
+        } catch (e) {
+          nicknameError = true;
+        }
       }
 
       const channel = client.channels.cache.get(leave.leaveChannelId);
@@ -279,7 +288,7 @@ client.on('interactionCreate', async (interaction: any) => {
         }
       }
 
-      const logChannel = client.channels.cache.get(settings?.leaveLogChannelId) || await client.channels.fetch(settings?.leaveLogChannelId).catch(() => null);
+      const logChannel = client.channels.cache.get(settings?.leaveLogChannelId);
       if (logChannel?.isTextBased()) {
         const embed = new EmbedBuilder()
           .setTitle(`**__ إلــغــاء إجــازة <@${userId}>__**`)
@@ -295,7 +304,12 @@ client.on('interactionCreate', async (interaction: any) => {
       }
 
       db.prepare('DELETE FROM active_leaves WHERE id = ?').run(leave.id);
-      await interaction.reply({ content: '✅ تم إلغاء الإجازة بنجاح.', ephemeral: true });
+      await interaction.reply({ 
+        content: nicknameError 
+          ? '✅ تم إلغاء الإجازة بنجاح، ولكن تعذر إعادة اللقب الأصلي بسبب نقص الصلاحيات.' 
+          : '✅ تم إلغاء الإجازة بنجاح.', 
+        ephemeral: true 
+      });
     }
   }
 
@@ -396,7 +410,10 @@ client.on('interactionCreate', async (interaction: any) => {
       const settings: any = db.prepare('SELECT * FROM settings WHERE guildId = ?').get(guildId);
       const member = interaction.member as any;
 
-      if (!member.permissions.has(PermissionFlagsBits.Administrator) && !member.roles.cache.has(settings?.resignationManagerRoleId)) {
+      const canManage = member.permissions.has(PermissionFlagsBits.Administrator) || 
+                        (settings?.resignationManagerRoleId && member.roles.cache.has(settings.resignationManagerRoleId));
+
+      if (!canManage) {
         return interaction.reply({ content: '❌ ليس لديك صلاحية اتخاذ هذا القرار.', ephemeral: true });
       }
 
@@ -404,29 +421,27 @@ client.on('interactionCreate', async (interaction: any) => {
       
       if (action === 'reject') {
         db.prepare('DELETE FROM pending_resignations WHERE userId = ? AND guildId = ?').run(userId, guildId);
-        await interaction.message.delete().catch(() => null);
+        await interaction.message.delete();
         await interaction.reply({ content: '❌ تم رفض طلب الاستقالة.', ephemeral: true });
 
-        if (settings?.resignationLogChannelId) {
-          const logChannel = client.channels.cache.get(settings.resignationLogChannelId) || await client.channels.fetch(settings.resignationLogChannelId).catch(() => null);
-          if (logChannel?.isTextBased()) {
-            const embed = new EmbedBuilder()
-              .setTitle(`**__ رفــض طــلـب اســتـقـالة <@${userId}>__**`)
-              .setDescription(`
+        const logChannel = client.channels.cache.get(settings?.resignationLogChannelId);
+        if (logChannel?.isTextBased()) {
+          const embed = new EmbedBuilder()
+            .setTitle(`**__ رفــض طــلـب اســتـقـالة <@${userId}>__**`)
+            .setDescription(`
 - **تــم الـرفــض بــواســطـة: <@${interaction.user.id}>**
 - **الــعـضـو: <@${userId}>**
-              `)
-              .setColor('#ff0000')
-              .setTimestamp();
-            
-            await (logChannel as any).send({ embeds: [embed] }).catch(() => null);
-            await (logChannel as any).send('https://cdn.discordapp.com/attachments/1373379066127716454/1480938731593531493/18e728ebe6975504.png?ex=69b17f2c&is=69b02dac&hm=bcd0207fd02e2658854910f5e25a666223cda4ed72663bdc4435fc0e97f0629e&').catch(() => null);
-          }
+            `)
+            .setColor('#ff0000')
+            .setTimestamp();
+          
+          await (logChannel as any).send({ embeds: [embed] });
+          await (logChannel as any).send('https://cdn.discordapp.com/attachments/1373379066127716454/1480938731593531493/18e728ebe6975504.png?ex=69b17f2c&is=69b02dac&hm=bcd0207fd02e2658854910f5e25a666223cda4ed72663bdc4435fc0e97f0629e&');
         }
 
         if (targetMember) {
           try {
-            await targetMember.send(`**نعتذر، لقد تم رفض طلب استقالتك في سيرفر ${interaction.guild?.name}**`).catch(() => null);
+            await targetMember.send(`**نعتذر، لقد تم رفض طلب استقالتك في سيرفر ${interaction.guild?.name}**`);
           } catch (e) {}
         }
         return;
@@ -435,76 +450,74 @@ client.on('interactionCreate', async (interaction: any) => {
       if (action === 'accept') {
         db.prepare('DELETE FROM pending_resignations WHERE userId = ? AND guildId = ?').run(userId, guildId);
         
-        if (settings?.resignationLogChannelId) {
-          const logChannel = client.channels.cache.get(settings.resignationLogChannelId) || await client.channels.fetch(settings.resignationLogChannelId).catch(() => null);
-          if (logChannel?.isTextBased()) {
-            const embed = new EmbedBuilder()
-              .setTitle(`**__ قــبـول طــلـب اســتـقـالة <@${userId}>__**`)
-              .setDescription(`
+        const logChannel = client.channels.cache.get(settings?.resignationLogChannelId);
+        if (logChannel?.isTextBased()) {
+          const embed = new EmbedBuilder()
+            .setTitle(`**__ قــبـول طــلـب اســتـقـالة <@${userId}>__**`)
+            .setDescription(`
 - **تــم الـقــبـول بــواســطـة: <@${interaction.user.id}>**
 - **الــعـضـو: <@${userId}>**
-              `)
-              .setColor('#00ff00')
-              .setTimestamp();
-            
-            await (logChannel as any).send({ embeds: [embed] }).catch(() => null);
-            await (logChannel as any).send('https://cdn.discordapp.com/attachments/1373379066127716454/1480938731593531493/18e728ebe6975504.png?ex=69b17f2c&is=69b02dac&hm=bcd0207fd02e2658854910f5e25a666223cda4ed72663bdc4435fc0e97f0629e&').catch(() => null);
-          }
+            `)
+            .setColor('#00ff00')
+            .setTimestamp();
+          
+          await (logChannel as any).send({ embeds: [embed] });
+          await (logChannel as any).send('https://cdn.discordapp.com/attachments/1373379066127716454/1480938731593531493/18e728ebe6975504.png?ex=69b17f2c&is=69b02dac&hm=bcd0207fd02e2658854910f5e25a666223cda4ed72663bdc4435fc0e97f0629e&');
         }
 
-        await interaction.message.delete().catch(() => null);
+        await interaction.message.delete();
         await interaction.reply({ content: '✅ تم قبول الاستقالة بنجاح.', ephemeral: true });
 
         if (targetMember) {
           try {
-            await targetMember.send(`**لقد تم قبول استقالتك في سيرفر ${interaction.guild?.name}. نتمنى لك التوفيق!**`).catch(() => null);
+            await targetMember.send(`**لقد تم قبول استقالتك في سيرفر ${interaction.guild?.name}. نتمنى لك التوفيق!**`);
+            // Optional: Kick or remove roles? The user didn't specify, so I'll just send the message.
           } catch (e) {}
         }
       }
     }
 
     if (interaction.customId.startsWith('leave_action_')) {
-      const parts = interaction.customId.split('_');
-      const userId = parts[2];
-      const durationStr = parts.slice(3).join('_');
+      const [, , userId, durationStr] = interaction.customId.split('_');
       const action = interaction.values[0];
       const guildId = interaction.guildId!;
       
       const settings: any = db.prepare('SELECT * FROM settings WHERE guildId = ?').get(guildId);
       const member = interaction.member as any;
 
-      if (!member.permissions.has(PermissionFlagsBits.Administrator) && !member.roles.cache.has(settings?.leaveManagerRoleId)) {
+      const canManage = member.permissions.has(PermissionFlagsBits.Administrator) || 
+                        (settings?.leaveManagerRoleId && member.roles.cache.has(settings.leaveManagerRoleId));
+
+      if (!canManage) {
         return interaction.reply({ content: '❌ ليس لديك صلاحية اتخاذ هذا القرار.', ephemeral: true });
       }
 
-      const targetMember = await interaction.guild?.members.fetch(userId).catch(() => null);
-      if (!targetMember) return interaction.reply({ content: '❌ لم يتم العثور على العضو في السيرفر.', ephemeral: true });
+      const targetMember = await interaction.guild?.members.fetch(userId);
+      if (!targetMember) return interaction.reply({ content: '❌ لم يتم العثور على العضو.', ephemeral: true });
 
       if (action === 'reject') {
         db.prepare('DELETE FROM pending_requests WHERE userId = ? AND guildId = ?').run(userId, guildId);
-        await interaction.message.delete().catch(() => null);
+        await interaction.message.delete();
         await interaction.reply({ content: '❌ تم رفض الطلب.', ephemeral: true });
 
         // Logging rejection
-        if (settings?.leaveLogChannelId) {
-          const logChannel = client.channels.cache.get(settings.leaveLogChannelId) || await client.channels.fetch(settings.leaveLogChannelId).catch(() => null);
-          if (logChannel?.isTextBased()) {
-            const embed = new EmbedBuilder()
-              .setTitle(`**__ رفــض طــلـب إجــازة <@${userId}>__**`)
-              .setDescription(`
+        const logChannel = client.channels.cache.get(settings?.leaveLogChannelId);
+        if (logChannel?.isTextBased()) {
+          const embed = new EmbedBuilder()
+            .setTitle(`**__ رفــض طــلـب إجــازة <@${userId}>__**`)
+            .setDescription(`
 - **تــم الـرفــض بــواســطـة: <@${interaction.user.id}>**
 - **الــعـضـو: <@${userId}>**
-              `)
-              .setColor('#ff0000')
-              .setTimestamp();
-            
-            await (logChannel as any).send({ embeds: [embed] }).catch(() => null);
-            await (logChannel as any).send('https://cdn.discordapp.com/attachments/1373379066127716454/1480938731593531493/18e728ebe6975504.png?ex=69b17f2c&is=69b02dac&hm=bcd0207fd02e2658854910f5e25a666223cda4ed72663bdc4435fc0e97f0629e&').catch(() => null);
-          }
+            `)
+            .setColor('#ff0000')
+            .setTimestamp();
+          
+          await (logChannel as any).send({ embeds: [embed] });
+          await (logChannel as any).send('https://cdn.discordapp.com/attachments/1373379066127716454/1480938731593531493/18e728ebe6975504.png?ex=69b17f2c&is=69b02dac&hm=bcd0207fd02e2658854910f5e25a666223cda4ed72663bdc4435fc0e97f0629e&');
         }
 
         try {
-          await targetMember.send(`**نعتذر، لقد تم رفض طلب إجازتك في سيرفر ${interaction.guild?.name}**`).catch(() => null);
+          await targetMember.send(`**نعتذر، لقد تم رفض طلب إجازتك في سيرفر ${interaction.guild?.name}**`);
         } catch (e) {}
         return;
       }
@@ -512,7 +525,7 @@ client.on('interactionCreate', async (interaction: any) => {
       if (action === 'accept') {
         db.prepare('DELETE FROM pending_requests WHERE userId = ? AND guildId = ?').run(userId, guildId);
         // Parse duration (assuming days for simplicity if not specified)
-        const daysMatch = durationStr?.match(/(\d+)/);
+        const daysMatch = durationStr.match(/(\d+)/);
         const days = daysMatch ? parseInt(daysMatch[1]) : 1;
         const endTimestamp = Date.now() + days * 24 * 60 * 60 * 1000;
 
@@ -524,43 +537,47 @@ client.on('interactionCreate', async (interaction: any) => {
         const originalNickname = targetMember.nickname || targetMember.user.username;
         const newNickname = `إجازة من ${dateStr} الى ${endDateStr}`;
 
+        let nicknameError = false;
         try {
-          await targetMember.setNickname(newNickname).catch(() => null);
+          if (targetMember.manageable) {
+            await targetMember.setNickname(newNickname);
+          } else {
+            nicknameError = true;
+          }
         } catch (e) {
           console.error('Failed to set nickname:', e);
+          nicknameError = true;
         }
 
+        const publicChannel = client.channels.cache.get(settings?.leavePublicChannelId);
         let leaveMsgId = '';
         let imgMsgId = '';
 
-        if (settings?.leavePublicChannelId) {
-          const publicChannel = client.channels.cache.get(settings.leavePublicChannelId) || await client.channels.fetch(settings.leavePublicChannelId).catch(() => null);
-          if (publicChannel?.isTextBased()) {
-            const embed = new EmbedBuilder()
-              .setTitle(`**__ إجــازة <@${userId}>__**`)
-              .setThumbnail(targetMember.user.displayAvatarURL())
-              .setDescription(`
+        if (publicChannel?.isTextBased()) {
+          const embed = new EmbedBuilder()
+            .setTitle(`**__ إجــازة <@${userId}>__**`)
+            .setThumbnail(targetMember.user.displayAvatarURL())
+            .setDescription(`
 - تفاصيل الإجازة
 - **تــم الـقــبـول بــواســطـة: <@${interaction.user.id}>**
 - ** تــم قــب-ول الاجــازة فـي (${dateStr})**
 - ** وقــت انـتــهاء الاجــازة فـي (${endDateStr})**
 - ** الـوقــت الـمــتـبــقـي لإنــتــهاء الاجــازة بــعـد <t:${Math.floor(endTimestamp / 1000)}:R>**
-              `)
-              .setColor('#2b2d31');
+            `)
+            .setColor('#2b2d31');
 
-            const cancelRow = new ActionRowBuilder<any>().addComponents(
-              new ButtonBuilder()
-                .setCustomId(`cancel_leave_${userId}`)
-                .setLabel('الــغــاء الإجــازة')
-                .setStyle(ButtonStyle.Danger)
-            );
+          const cancelRow = new ActionRowBuilder<any>().addComponents(
+            new ButtonBuilder()
+              .setCustomId(`cancel_leave_${userId}`)
+              .setLabel('الــغــاء الإجــازة')
+              .setStyle(ButtonStyle.Danger)
+          );
 
-            const msg = await (publicChannel as any).send({ embeds: [embed], components: [cancelRow] }).catch(() => null);
-            const imgMsg = await (publicChannel as any).send('https://cdn.discordapp.com/attachments/1373379066127716454/1480938731593531493/18e728ebe6975504.png?ex=69b17f2c&is=69b02dac&hm=bcd0207fd02e2658854910f5e25a666223cda4ed72663bdc4435fc0e97f0629e&').catch(() => null);
-            
-            if (msg) leaveMsgId = msg.id;
-            if (imgMsg) imgMsgId = imgMsg.id;
-          }
+          const msg = await (publicChannel as any).send({ embeds: [embed], components: [cancelRow] });
+          const imgMsg = await (publicChannel as any).send('https://cdn.discordapp.com/attachments/1373379066127716454/1480938731593531493/18e728ebe6975504.png?ex=69b17f2c&is=69b02dac&hm=bcd0207fd02e2658854910f5e25a666223cda4ed72663bdc4435fc0e97f0629e&');
+          
+          leaveMsgId = msg.id;
+          imgMsgId = imgMsg.id;
         }
 
         db.prepare(`
@@ -569,30 +586,33 @@ client.on('interactionCreate', async (interaction: any) => {
         `).run(guildId, userId, originalNickname, endTimestamp, leaveMsgId, settings?.leavePublicChannelId, imgMsgId);
 
         // Logging acceptance
-        if (settings?.leaveLogChannelId) {
-          const logChannel = client.channels.cache.get(settings.leaveLogChannelId) || await client.channels.fetch(settings.leaveLogChannelId).catch(() => null);
-          if (logChannel?.isTextBased()) {
-            const embed = new EmbedBuilder()
-              .setTitle(`**__ قــبـول طــلـب إجــازة <@${userId}>__**`)
-              .setDescription(`
+        const logChannel = client.channels.cache.get(settings?.leaveLogChannelId);
+        if (logChannel?.isTextBased()) {
+          const embed = new EmbedBuilder()
+            .setTitle(`**__ قــبـول طــلـب إجــازة <@${userId}>__**`)
+            .setDescription(`
 - **تــم الـقــبـول بــواســطـة: <@${interaction.user.id}>**
 - **الــعـضـو: <@${userId}>**
 - **الــمـدة: ${durationStr}**
 - **تــنـتـهـي فـي: <t:${Math.floor(endTimestamp / 1000)}:F>**
-              `)
-              .setColor('#00ff00')
-              .setTimestamp();
-            
-            await (logChannel as any).send({ embeds: [embed] }).catch(() => null);
-            await (logChannel as any).send('https://cdn.discordapp.com/attachments/1373379066127716454/1480938731593531493/18e728ebe6975504.png?ex=69b17f2c&is=69b02dac&hm=bcd0207fd02e2658854910f5e25a666223cda4ed72663bdc4435fc0e97f0629e&').catch(() => null);
-          }
+            `)
+            .setColor('#00ff00')
+            .setTimestamp();
+          
+          await (logChannel as any).send({ embeds: [embed] });
+          await (logChannel as any).send('https://cdn.discordapp.com/attachments/1373379066127716454/1480938731593531493/18e728ebe6975504.png?ex=69b17f2c&is=69b02dac&hm=bcd0207fd02e2658854910f5e25a666223cda4ed72663bdc4435fc0e97f0629e&');
         }
 
-        await interaction.message.delete().catch(() => null);
-        await interaction.reply({ content: '✅ تم قبول الطلب بنجاح.', ephemeral: true });
+        await interaction.message.delete();
+        await interaction.reply({ 
+          content: nicknameError 
+            ? '✅ تم قبول الطلب بنجاح، ولكن تعذر تغيير اللقب بسبب نقص الصلاحيات (تأكد من أن رتبة البوت أعلى من رتبة العضو).' 
+            : '✅ تم قبول الطلب بنجاح.', 
+          ephemeral: true 
+        });
 
         try {
-          await targetMember.send(`**لــقـد تـم قــبـول اجــازتــك فـي ســيرفـر ${interaction.guild?.name}**`).catch(() => null);
+          await targetMember.send(`**لــقـد تـم قــبـول اجــازتــك فـي ســيرفـر ${interaction.guild?.name}**`);
         } catch (e) {}
       }
     }
@@ -612,11 +632,13 @@ async function checkExpiredLeaves() {
 
     if (member) {
       try {
-        await member.setNickname(leave.originalNickname);
+        if (member.manageable) {
+          await member.setNickname(null);
+        }
       } catch (e) {}
     }
 
-    const channel = client.channels.cache.get(leave.leaveChannelId) || await client.channels.fetch(leave.leaveChannelId).catch(() => null);
+    const channel = client.channels.cache.get(leave.leaveChannelId);
     if (channel?.isTextBased()) {
       try {
         if (leave.leaveMessageId) {
@@ -630,7 +652,7 @@ async function checkExpiredLeaves() {
       } catch (e) {}
     }
 
-    const logChannel = client.channels.cache.get(settings?.leaveLogChannelId) || await client.channels.fetch(settings?.leaveLogChannelId).catch(() => null);
+    const logChannel = client.channels.cache.get(settings?.leaveLogChannelId);
     if (logChannel?.isTextBased()) {
       const embed = new EmbedBuilder()
         .setTitle(`**__ انـتـهـاء إجــازة <@${leave.userId}>__**`)
