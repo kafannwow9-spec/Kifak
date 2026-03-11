@@ -40,12 +40,24 @@ if (!TOKEN) {
 const commands = [
   new SlashCommandBuilder()
     .setName('طلب-اجازة')
-    .setDescription('إعداد رسالة طلب الإجازة')
-    .addStringOption(opt => opt.setName('عنوان-الايمبد').setDescription('عنوان الايمبد').setRequired(true))
-    .addStringOption(opt => opt.setName('وصف-الايمبد').setDescription('وصف الايمبد').setRequired(true))
+    .setDescription('إرسال رسالة طلب الإجازة')
     .addChannelOption(opt => opt.setName('روم-الطلبات').setDescription('الروم الذي سترسل إليه الطلبات للمسؤولين').setRequired(true))
     .addChannelOption(opt => opt.setName('روم-الإجازات').setDescription('الروم العام للإجازات').setRequired(true))
     .addChannelOption(opt => opt.setName('لوق-الإجازات').setDescription('روم السجلات (اللوق)').setRequired(true))
+    .setDefaultMemberPermissions(PermissionFlagsBits.Administrator),
+
+  new SlashCommandBuilder()
+    .setName('إرسال-رسالة')
+    .setDescription('إرسال رسالة في الروم الحالي')
+    .addStringOption(opt => opt.setName('الرسالة').setDescription('الكلمة التي تريد كتابتها').setRequired(true))
+    .addStringOption(opt => opt.setName('رد-على').setDescription('اختر الرسالة التي تريد الرد عليها (اختياري)').setAutocomplete(true))
+    .setDefaultMemberPermissions(PermissionFlagsBits.Administrator),
+
+  new SlashCommandBuilder()
+    .setName('إرسال-خاص')
+    .setDescription('إرسال رسالة خاصة لعضو')
+    .addUserOption(opt => opt.setName('العضو').setDescription('العضو الذي تريد الإرسال له').setRequired(true))
+    .addStringOption(opt => opt.setName('الرسالة').setDescription('محتوى الرسالة').setRequired(true))
     .setDefaultMemberPermissions(PermissionFlagsBits.Administrator),
 
   new SlashCommandBuilder()
@@ -94,6 +106,19 @@ client.on('guildCreate', (guild) => {
 });
 
 client.on('interactionCreate', async (interaction: any) => {
+  if (interaction.isAutocomplete()) {
+    if (interaction.commandName === 'إرسال-رسالة') {
+      const channel = interaction.channel;
+      if (!channel) return;
+      const messages = await channel.messages.fetch({ limit: 25 });
+      const choices = messages.map((m: any) => ({
+        name: `${m.author.username}: ${m.content.substring(0, 50)}...`,
+        value: m.id
+      }));
+      await interaction.respond(choices);
+    }
+  }
+
   if (interaction.isChatInputCommand()) {
     const { commandName, guildId, options } = interaction;
     if (!guildId) return;
@@ -116,6 +141,41 @@ client.on('interactionCreate', async (interaction: any) => {
     if (commandName === 'ping') {
       const latency = Math.round(client.ws.ping);
       await interaction.reply({ content: `🏓 سرعة استجابة البوت هي: **${latency}ms**`, ephemeral: true });
+    }
+
+    if (commandName === 'إرسال-خاص') {
+      const targetUser = options.getUser('العضو');
+      const message = options.getString('الرسالة');
+      
+      try {
+        await targetUser.send(message);
+        await interaction.reply({ content: `✅ تم إرسال الرسالة بنجاح إلى <@${targetUser.id}>`, ephemeral: true });
+      } catch (e) {
+        await interaction.reply({ content: '❌ تعذر إرسال رسالة خاصة لهذا العضو (قد تكون الرسائل الخاصة مغلقة).', ephemeral: true });
+      }
+    }
+
+    if (commandName === 'إرسال-رسالة') {
+      const message = options.getString('الرسالة');
+      const replyToId = options.getString('رد-على');
+      
+      await interaction.reply({ content: 'جاري الإرسال...', ephemeral: true });
+      
+      try {
+        if (replyToId) {
+          const targetMsg = await interaction.channel.messages.fetch(replyToId).catch(() => null);
+          if (targetMsg) {
+            await targetMsg.reply(message);
+          } else {
+            await interaction.channel.send(message);
+          }
+        } else {
+          await interaction.channel.send(message);
+        }
+        await interaction.editReply({ content: '✅ تم إرسال الرسالة بنجاح.' });
+      } catch (e) {
+        await interaction.editReply({ content: '❌ حدث خطأ أثناء محاولة إرسال الرسالة.' });
+      }
     }
 
     if (commandName === 'إعداد-الاستقالة') {
@@ -147,8 +207,11 @@ client.on('interactionCreate', async (interaction: any) => {
     }
 
     if (commandName === 'طلب-اجازة') {
-      const title = options.getString('عنوان-الايمبد');
-      const desc = options.getString('وصف-الايمبد');
+      const settings: any = db.prepare('SELECT * FROM settings WHERE guildId = ?').get(guildId);
+      if (!settings || !settings.leaveManagerRoleId) {
+        return interaction.reply({ content: '❌ يجب عليك إعداد مسؤولين الطلبات أولاً باستخدام أمر `/مسؤولين-الطلبات` قبل استخدام هذا الأمر.', ephemeral: true });
+      }
+
       const requestChannel = options.getChannel('روم-الطلبات');
       const publicChannel = options.getChannel('روم-الإجازات');
       const logChannel = options.getChannel('لوق-الإجازات');
@@ -162,8 +225,14 @@ client.on('interactionCreate', async (interaction: any) => {
       `).run(guildId, logChannel?.id, publicChannel?.id, logChannel?.id, publicChannel?.id);
 
       const embed = new EmbedBuilder()
-        .setTitle(title)
-        .setDescription(desc)
+        .setTitle('طلب اجازة')
+        .setDescription(`
+**__يــمـكـنـك طــلـب اجــازة مـن هــنـا__**
+
+- **اقــصـى حـد لــطـلــب هـو 3 اشــهـر**
+- **عند الــضــغـط عـلــى الــزر الــذي بـلاســفــل ضـع فــقــط عــدد الإيــام**
+- **مــثــال: 60 أيام**
+        `)
         .setColor('#2b2d31')
         .setImage('https://cdn.discordapp.com/attachments/1373379066127716454/1480947656787492934/29c156efac6e235a.jpg?ex=69b1877c&is=69b035fc&hm=8a610c2c2c4babc6a4a91f3355412582e774148418004142c3c17e2c4e1eb9e8&');
 
@@ -197,7 +266,7 @@ client.on('interactionCreate', async (interaction: any) => {
 
       const durationInput = new TextInputBuilder()
         .setCustomId('leave_duration')
-        .setLabel('مدة الإجازة (مثال: 10 أيام)')
+        .setLabel('ضع فقط عدد الأيام (مثال: 60 أيام)')
         .setStyle(TextInputStyle.Short)
         .setRequired(true);
 
@@ -316,9 +385,20 @@ client.on('interactionCreate', async (interaction: any) => {
   if (interaction.isModalSubmit()) {
     if (interaction.customId.startsWith('leave_modal_')) {
       const requestChannelId = interaction.customId.split('_')[2];
-      const duration = interaction.fields.getTextInputValue('leave_duration');
+      const durationInput = interaction.fields.getTextInputValue('leave_duration');
       const reason = interaction.fields.getTextInputValue('leave_reason');
       const channel = client.channels.cache.get(requestChannelId);
+
+      // Validate duration
+      const days = parseInt(durationInput.replace(/[^0-9]/g, ''));
+      if (isNaN(days) || days <= 0) {
+        return interaction.reply({ content: '❌ يرجى إدخال عدد أيام صحيح (أرقام فقط).', ephemeral: true });
+      }
+      if (days > 90) {
+        return interaction.reply({ content: '❌ عذراً، أقصى مدة لطلب الإجازة هي 3 أشهر (90 يوماً).', ephemeral: true });
+      }
+
+      const duration = `${days} أيام`;
 
       if (channel?.isTextBased()) {
         // Track pending request
