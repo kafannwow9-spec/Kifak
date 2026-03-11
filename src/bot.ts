@@ -240,6 +240,61 @@ client.on('interactionCreate', async (interaction: any) => {
 
       await interaction.showModal(modal);
     }
+
+    if (interaction.customId.startsWith('cancel_leave_')) {
+      const userId = interaction.customId.split('_')[2];
+      const guildId = interaction.guildId!;
+      const settings: any = db.prepare('SELECT * FROM settings WHERE guildId = ?').get(guildId);
+      const member = interaction.member as any;
+
+      if (!member.permissions.has(PermissionFlagsBits.Administrator) && !member.roles.cache.has(settings?.leaveManagerRoleId)) {
+        return interaction.reply({ content: '❌ ليس لديك صلاحية إلغاء الإجازة.', ephemeral: true });
+      }
+
+      const leave: any = db.prepare('SELECT * FROM active_leaves WHERE userId = ? AND guildId = ?').get(userId, guildId);
+      if (!leave) return interaction.reply({ content: '❌ لم يتم العثور على إجازة نشطة لهذا العضو.', ephemeral: true });
+
+      const targetMember = await interaction.guild?.members.fetch(userId).catch(() => null);
+      if (targetMember) {
+        try {
+          await targetMember.setNickname(leave.originalNickname);
+        } catch (e) {}
+      }
+
+      const channel = client.channels.cache.get(leave.leaveChannelId);
+      if (channel?.isTextBased()) {
+        try {
+          if (leave.leaveMessageId) {
+            const msg = await (channel as any).messages.fetch(leave.leaveMessageId).catch(() => null);
+            if (msg) await msg.delete().catch(() => null);
+          }
+          if (leave.imageMessageId) {
+            const imgMsg = await (channel as any).messages.fetch(leave.imageMessageId).catch(() => null);
+            if (imgMsg) await imgMsg.delete().catch(() => null);
+          }
+        } catch (e) {
+          console.error('Error deleting leave messages:', e);
+        }
+      }
+
+      const logChannel = client.channels.cache.get(settings?.leaveLogChannelId);
+      if (logChannel?.isTextBased()) {
+        const embed = new EmbedBuilder()
+          .setTitle(`**__ إلــغــاء إجــازة <@${userId}>__**`)
+          .setDescription(`
+- **تــم الإلــغــاء بــواســطـة: <@${interaction.user.id}>**
+- تم إرجاع العضو من الإجازة وحذف جميع السجلات بنجاح.
+          `)
+          .setColor('#ff0000')
+          .setTimestamp();
+        
+        await (logChannel as any).send({ embeds: [embed] });
+        await (logChannel as any).send('https://cdn.discordapp.com/attachments/1373379066127716454/1480938731593531493/18e728ebe6975504.png?ex=69b17f2c&is=69b02dac&hm=bcd0207fd02e2658854910f5e25a666223cda4ed72663bdc4435fc0e97f0629e&');
+      }
+
+      db.prepare('DELETE FROM active_leaves WHERE id = ?').run(leave.id);
+      await interaction.reply({ content: '✅ تم إلغاء الإجازة بنجاح.', ephemeral: true });
+    }
   }
 
   if (interaction.isModalSubmit()) {
@@ -527,61 +582,6 @@ client.on('interactionCreate', async (interaction: any) => {
           await targetMember.send(`**لــقـد تـم قــبـول اجــازتــك فـي ســيرفـر ${interaction.guild?.name}**`);
         } catch (e) {}
       }
-    }
-
-    if (interaction.customId.startsWith('cancel_leave_')) {
-      const userId = interaction.customId.split('_')[2];
-      const guildId = interaction.guildId!;
-      const settings: any = db.prepare('SELECT * FROM settings WHERE guildId = ?').get(guildId);
-      const member = interaction.member as any;
-
-      if (!member.permissions.has(PermissionFlagsBits.Administrator) && !member.roles.cache.has(settings?.leaveManagerRoleId)) {
-        return interaction.reply({ content: '❌ ليس لديك صلاحية إلغاء الإجازة.', ephemeral: true });
-      }
-
-      const leave: any = db.prepare('SELECT * FROM active_leaves WHERE userId = ? AND guildId = ?').get(userId, guildId);
-      if (!leave) return interaction.reply({ content: '❌ لم يتم العثور على إجازة نشطة لهذا العضو.', ephemeral: true });
-
-      const targetMember = await interaction.guild?.members.fetch(userId).catch(() => null);
-      if (targetMember) {
-        try {
-          await targetMember.setNickname(leave.originalNickname);
-        } catch (e) {}
-      }
-
-      const channel = client.channels.cache.get(leave.leaveChannelId);
-      if (channel?.isTextBased()) {
-        try {
-          if (leave.leaveMessageId) {
-            const msg = await (channel as any).messages.fetch(leave.leaveMessageId).catch(() => null);
-            if (msg) await msg.delete().catch(() => null);
-          }
-          if (leave.imageMessageId) {
-            const imgMsg = await (channel as any).messages.fetch(leave.imageMessageId).catch(() => null);
-            if (imgMsg) await imgMsg.delete().catch(() => null);
-          }
-        } catch (e) {
-          console.error('Error deleting leave messages:', e);
-        }
-      }
-
-      const logChannel = client.channels.cache.get(settings?.leaveLogChannelId);
-      if (logChannel?.isTextBased()) {
-        const embed = new EmbedBuilder()
-          .setTitle(`**__ إلــغــاء إجــازة <@${userId}>__**`)
-          .setDescription(`
-- **تــم الإلــغــاء بــواســطـة: <@${interaction.user.id}>**
-- تم إرجاع العضو من الإجازة وحذف جميع السجلات بنجاح.
-          `)
-          .setColor('#ff0000')
-          .setTimestamp();
-        
-        await (logChannel as any).send({ embeds: [embed] });
-        await (logChannel as any).send('https://cdn.discordapp.com/attachments/1373379066127716454/1480938731593531493/18e728ebe6975504.png?ex=69b17f2c&is=69b02dac&hm=bcd0207fd02e2658854910f5e25a666223cda4ed72663bdc4435fc0e97f0629e&');
-      }
-
-      db.prepare('DELETE FROM active_leaves WHERE id = ?').run(leave.id);
-      await interaction.reply({ content: '✅ تم إلغاء الإجازة بنجاح.', ephemeral: true });
     }
   }
 });
