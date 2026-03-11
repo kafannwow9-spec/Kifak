@@ -404,27 +404,29 @@ client.on('interactionCreate', async (interaction: any) => {
       
       if (action === 'reject') {
         db.prepare('DELETE FROM pending_resignations WHERE userId = ? AND guildId = ?').run(userId, guildId);
-        await interaction.message.delete();
+        await interaction.message.delete().catch(() => null);
         await interaction.reply({ content: '❌ تم رفض طلب الاستقالة.', ephemeral: true });
 
-        const logChannel = client.channels.cache.get(settings?.resignationLogChannelId) || await client.channels.fetch(settings?.resignationLogChannelId).catch(() => null);
-        if (logChannel?.isTextBased()) {
-          const embed = new EmbedBuilder()
-            .setTitle(`**__ رفــض طــلـب اســتـقـالة <@${userId}>__**`)
-            .setDescription(`
+        if (settings?.resignationLogChannelId) {
+          const logChannel = client.channels.cache.get(settings.resignationLogChannelId) || await client.channels.fetch(settings.resignationLogChannelId).catch(() => null);
+          if (logChannel?.isTextBased()) {
+            const embed = new EmbedBuilder()
+              .setTitle(`**__ رفــض طــلـب اســتـقـالة <@${userId}>__**`)
+              .setDescription(`
 - **تــم الـرفــض بــواســطـة: <@${interaction.user.id}>**
 - **الــعـضـو: <@${userId}>**
-            `)
-            .setColor('#ff0000')
-            .setTimestamp();
-          
-          await (logChannel as any).send({ embeds: [embed] });
-          await (logChannel as any).send('https://cdn.discordapp.com/attachments/1373379066127716454/1480938731593531493/18e728ebe6975504.png?ex=69b17f2c&is=69b02dac&hm=bcd0207fd02e2658854910f5e25a666223cda4ed72663bdc4435fc0e97f0629e&');
+              `)
+              .setColor('#ff0000')
+              .setTimestamp();
+            
+            await (logChannel as any).send({ embeds: [embed] }).catch(() => null);
+            await (logChannel as any).send('https://cdn.discordapp.com/attachments/1373379066127716454/1480938731593531493/18e728ebe6975504.png?ex=69b17f2c&is=69b02dac&hm=bcd0207fd02e2658854910f5e25a666223cda4ed72663bdc4435fc0e97f0629e&').catch(() => null);
+          }
         }
 
         if (targetMember) {
           try {
-            await targetMember.send(`**نعتذر، لقد تم رفض طلب استقالتك في سيرفر ${interaction.guild?.name}**`);
+            await targetMember.send(`**نعتذر، لقد تم رفض طلب استقالتك في سيرفر ${interaction.guild?.name}**`).catch(() => null);
           } catch (e) {}
         }
         return;
@@ -433,35 +435,38 @@ client.on('interactionCreate', async (interaction: any) => {
       if (action === 'accept') {
         db.prepare('DELETE FROM pending_resignations WHERE userId = ? AND guildId = ?').run(userId, guildId);
         
-        const logChannel = client.channels.cache.get(settings?.resignationLogChannelId) || await client.channels.fetch(settings?.resignationLogChannelId).catch(() => null);
-        if (logChannel?.isTextBased()) {
-          const embed = new EmbedBuilder()
-            .setTitle(`**__ قــبـول طــلـب اســتـقـالة <@${userId}>__**`)
-            .setDescription(`
+        if (settings?.resignationLogChannelId) {
+          const logChannel = client.channels.cache.get(settings.resignationLogChannelId) || await client.channels.fetch(settings.resignationLogChannelId).catch(() => null);
+          if (logChannel?.isTextBased()) {
+            const embed = new EmbedBuilder()
+              .setTitle(`**__ قــبـول طــلـب اســتـقـالة <@${userId}>__**`)
+              .setDescription(`
 - **تــم الـقــبـول بــواســطـة: <@${interaction.user.id}>**
 - **الــعـضـو: <@${userId}>**
-            `)
-            .setColor('#00ff00')
-            .setTimestamp();
-          
-          await (logChannel as any).send({ embeds: [embed] });
-          await (logChannel as any).send('https://cdn.discordapp.com/attachments/1373379066127716454/1480938731593531493/18e728ebe6975504.png?ex=69b17f2c&is=69b02dac&hm=bcd0207fd02e2658854910f5e25a666223cda4ed72663bdc4435fc0e97f0629e&');
+              `)
+              .setColor('#00ff00')
+              .setTimestamp();
+            
+            await (logChannel as any).send({ embeds: [embed] }).catch(() => null);
+            await (logChannel as any).send('https://cdn.discordapp.com/attachments/1373379066127716454/1480938731593531493/18e728ebe6975504.png?ex=69b17f2c&is=69b02dac&hm=bcd0207fd02e2658854910f5e25a666223cda4ed72663bdc4435fc0e97f0629e&').catch(() => null);
+          }
         }
 
-        await interaction.message.delete();
+        await interaction.message.delete().catch(() => null);
         await interaction.reply({ content: '✅ تم قبول الاستقالة بنجاح.', ephemeral: true });
 
         if (targetMember) {
           try {
-            await targetMember.send(`**لقد تم قبول استقالتك في سيرفر ${interaction.guild?.name}. نتمنى لك التوفيق!**`);
-            // Optional: Kick or remove roles? The user didn't specify, so I'll just send the message.
+            await targetMember.send(`**لقد تم قبول استقالتك في سيرفر ${interaction.guild?.name}. نتمنى لك التوفيق!**`).catch(() => null);
           } catch (e) {}
         }
       }
     }
 
     if (interaction.customId.startsWith('leave_action_')) {
-      const [, , userId, durationStr] = interaction.customId.split('_');
+      const parts = interaction.customId.split('_');
+      const userId = parts[2];
+      const durationStr = parts.slice(3).join('_');
       const action = interaction.values[0];
       const guildId = interaction.guildId!;
       
@@ -472,32 +477,34 @@ client.on('interactionCreate', async (interaction: any) => {
         return interaction.reply({ content: '❌ ليس لديك صلاحية اتخاذ هذا القرار.', ephemeral: true });
       }
 
-      const targetMember = await interaction.guild?.members.fetch(userId);
-      if (!targetMember) return interaction.reply({ content: '❌ لم يتم العثور على العضو.', ephemeral: true });
+      const targetMember = await interaction.guild?.members.fetch(userId).catch(() => null);
+      if (!targetMember) return interaction.reply({ content: '❌ لم يتم العثور على العضو في السيرفر.', ephemeral: true });
 
       if (action === 'reject') {
         db.prepare('DELETE FROM pending_requests WHERE userId = ? AND guildId = ?').run(userId, guildId);
-        await interaction.message.delete();
+        await interaction.message.delete().catch(() => null);
         await interaction.reply({ content: '❌ تم رفض الطلب.', ephemeral: true });
 
         // Logging rejection
-        const logChannel = client.channels.cache.get(settings?.leaveLogChannelId) || await client.channels.fetch(settings?.leaveLogChannelId).catch(() => null);
-        if (logChannel?.isTextBased()) {
-          const embed = new EmbedBuilder()
-            .setTitle(`**__ رفــض طــلـب إجــازة <@${userId}>__**`)
-            .setDescription(`
+        if (settings?.leaveLogChannelId) {
+          const logChannel = client.channels.cache.get(settings.leaveLogChannelId) || await client.channels.fetch(settings.leaveLogChannelId).catch(() => null);
+          if (logChannel?.isTextBased()) {
+            const embed = new EmbedBuilder()
+              .setTitle(`**__ رفــض طــلـب إجــازة <@${userId}>__**`)
+              .setDescription(`
 - **تــم الـرفــض بــواســطـة: <@${interaction.user.id}>**
 - **الــعـضـو: <@${userId}>**
-            `)
-            .setColor('#ff0000')
-            .setTimestamp();
-          
-          await (logChannel as any).send({ embeds: [embed] });
-          await (logChannel as any).send('https://cdn.discordapp.com/attachments/1373379066127716454/1480938731593531493/18e728ebe6975504.png?ex=69b17f2c&is=69b02dac&hm=bcd0207fd02e2658854910f5e25a666223cda4ed72663bdc4435fc0e97f0629e&');
+              `)
+              .setColor('#ff0000')
+              .setTimestamp();
+            
+            await (logChannel as any).send({ embeds: [embed] }).catch(() => null);
+            await (logChannel as any).send('https://cdn.discordapp.com/attachments/1373379066127716454/1480938731593531493/18e728ebe6975504.png?ex=69b17f2c&is=69b02dac&hm=bcd0207fd02e2658854910f5e25a666223cda4ed72663bdc4435fc0e97f0629e&').catch(() => null);
+          }
         }
 
         try {
-          await targetMember.send(`**نعتذر، لقد تم رفض طلب إجازتك في سيرفر ${interaction.guild?.name}**`);
+          await targetMember.send(`**نعتذر، لقد تم رفض طلب إجازتك في سيرفر ${interaction.guild?.name}**`).catch(() => null);
         } catch (e) {}
         return;
       }
@@ -505,7 +512,7 @@ client.on('interactionCreate', async (interaction: any) => {
       if (action === 'accept') {
         db.prepare('DELETE FROM pending_requests WHERE userId = ? AND guildId = ?').run(userId, guildId);
         // Parse duration (assuming days for simplicity if not specified)
-        const daysMatch = durationStr.match(/(\d+)/);
+        const daysMatch = durationStr?.match(/(\d+)/);
         const days = daysMatch ? parseInt(daysMatch[1]) : 1;
         const endTimestamp = Date.now() + days * 24 * 60 * 60 * 1000;
 
@@ -518,40 +525,42 @@ client.on('interactionCreate', async (interaction: any) => {
         const newNickname = `إجازة من ${dateStr} الى ${endDateStr}`;
 
         try {
-          await targetMember.setNickname(newNickname);
+          await targetMember.setNickname(newNickname).catch(() => null);
         } catch (e) {
           console.error('Failed to set nickname:', e);
         }
 
-        const publicChannel = client.channels.cache.get(settings?.leavePublicChannelId) || await client.channels.fetch(settings?.leavePublicChannelId).catch(() => null);
         let leaveMsgId = '';
         let imgMsgId = '';
 
-        if (publicChannel?.isTextBased()) {
-          const embed = new EmbedBuilder()
-            .setTitle(`**__ إجــازة <@${userId}>__**`)
-            .setThumbnail(targetMember.user.displayAvatarURL())
-            .setDescription(`
+        if (settings?.leavePublicChannelId) {
+          const publicChannel = client.channels.cache.get(settings.leavePublicChannelId) || await client.channels.fetch(settings.leavePublicChannelId).catch(() => null);
+          if (publicChannel?.isTextBased()) {
+            const embed = new EmbedBuilder()
+              .setTitle(`**__ إجــازة <@${userId}>__**`)
+              .setThumbnail(targetMember.user.displayAvatarURL())
+              .setDescription(`
 - تفاصيل الإجازة
 - **تــم الـقــبـول بــواســطـة: <@${interaction.user.id}>**
 - ** تــم قــب-ول الاجــازة فـي (${dateStr})**
 - ** وقــت انـتــهاء الاجــازة فـي (${endDateStr})**
 - ** الـوقــت الـمــتـبــقـي لإنــتــهاء الاجــازة بــعـد <t:${Math.floor(endTimestamp / 1000)}:R>**
-            `)
-            .setColor('#2b2d31');
+              `)
+              .setColor('#2b2d31');
 
-          const cancelRow = new ActionRowBuilder<any>().addComponents(
-            new ButtonBuilder()
-              .setCustomId(`cancel_leave_${userId}`)
-              .setLabel('الــغــاء الإجــازة')
-              .setStyle(ButtonStyle.Danger)
-          );
+            const cancelRow = new ActionRowBuilder<any>().addComponents(
+              new ButtonBuilder()
+                .setCustomId(`cancel_leave_${userId}`)
+                .setLabel('الــغــاء الإجــازة')
+                .setStyle(ButtonStyle.Danger)
+            );
 
-          const msg = await (publicChannel as any).send({ embeds: [embed], components: [cancelRow] });
-          const imgMsg = await (publicChannel as any).send('https://cdn.discordapp.com/attachments/1373379066127716454/1480938731593531493/18e728ebe6975504.png?ex=69b17f2c&is=69b02dac&hm=bcd0207fd02e2658854910f5e25a666223cda4ed72663bdc4435fc0e97f0629e&');
-          
-          leaveMsgId = msg.id;
-          imgMsgId = imgMsg.id;
+            const msg = await (publicChannel as any).send({ embeds: [embed], components: [cancelRow] }).catch(() => null);
+            const imgMsg = await (publicChannel as any).send('https://cdn.discordapp.com/attachments/1373379066127716454/1480938731593531493/18e728ebe6975504.png?ex=69b17f2c&is=69b02dac&hm=bcd0207fd02e2658854910f5e25a666223cda4ed72663bdc4435fc0e97f0629e&').catch(() => null);
+            
+            if (msg) leaveMsgId = msg.id;
+            if (imgMsg) imgMsgId = imgMsg.id;
+          }
         }
 
         db.prepare(`
@@ -560,28 +569,30 @@ client.on('interactionCreate', async (interaction: any) => {
         `).run(guildId, userId, originalNickname, endTimestamp, leaveMsgId, settings?.leavePublicChannelId, imgMsgId);
 
         // Logging acceptance
-        const logChannel = client.channels.cache.get(settings?.leaveLogChannelId) || await client.channels.fetch(settings?.leaveLogChannelId).catch(() => null);
-        if (logChannel?.isTextBased()) {
-          const embed = new EmbedBuilder()
-            .setTitle(`**__ قــبـول طــلـب إجــازة <@${userId}>__**`)
-            .setDescription(`
+        if (settings?.leaveLogChannelId) {
+          const logChannel = client.channels.cache.get(settings.leaveLogChannelId) || await client.channels.fetch(settings.leaveLogChannelId).catch(() => null);
+          if (logChannel?.isTextBased()) {
+            const embed = new EmbedBuilder()
+              .setTitle(`**__ قــبـول طــلـب إجــازة <@${userId}>__**`)
+              .setDescription(`
 - **تــم الـقــبـول بــواســطـة: <@${interaction.user.id}>**
 - **الــعـضـو: <@${userId}>**
 - **الــمـدة: ${durationStr}**
 - **تــنـتـهـي فـي: <t:${Math.floor(endTimestamp / 1000)}:F>**
-            `)
-            .setColor('#00ff00')
-            .setTimestamp();
-          
-          await (logChannel as any).send({ embeds: [embed] });
-          await (logChannel as any).send('https://cdn.discordapp.com/attachments/1373379066127716454/1480938731593531493/18e728ebe6975504.png?ex=69b17f2c&is=69b02dac&hm=bcd0207fd02e2658854910f5e25a666223cda4ed72663bdc4435fc0e97f0629e&');
+              `)
+              .setColor('#00ff00')
+              .setTimestamp();
+            
+            await (logChannel as any).send({ embeds: [embed] }).catch(() => null);
+            await (logChannel as any).send('https://cdn.discordapp.com/attachments/1373379066127716454/1480938731593531493/18e728ebe6975504.png?ex=69b17f2c&is=69b02dac&hm=bcd0207fd02e2658854910f5e25a666223cda4ed72663bdc4435fc0e97f0629e&').catch(() => null);
+          }
         }
 
-        await interaction.message.delete();
+        await interaction.message.delete().catch(() => null);
         await interaction.reply({ content: '✅ تم قبول الطلب بنجاح.', ephemeral: true });
 
         try {
-          await targetMember.send(`**لــقـد تـم قــبـول اجــازتــك فـي ســيرفـر ${interaction.guild?.name}**`);
+          await targetMember.send(`**لــقـد تـم قــبـول اجــازتــك فـي ســيرفـر ${interaction.guild?.name}**`).catch(() => null);
         } catch (e) {}
       }
     }
