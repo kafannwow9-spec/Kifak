@@ -49,8 +49,12 @@ const commands = [
     .setDefaultMemberPermissions(PermissionFlagsBits.Administrator),
 
   new SlashCommandBuilder()
-    .setName('استقالة')
-    .setDescription('طلب استقالة (قيد التطوير)')
+    .setName('إعداد-الاستقالة')
+    .setDescription('إعداد رسالة طلب الاستقالة')
+    .addStringOption(opt => opt.setName('عنوان-الايمبد').setDescription('عنوان الايمبد').setRequired(true))
+    .addStringOption(opt => opt.setName('وصف-الايمبد').setDescription('وصف الايمبد').setRequired(true))
+    .addChannelOption(opt => opt.setName('روم-الطلبات').setDescription('الروم الذي سترسل إليه الطلبات للمسؤولين').setRequired(true))
+    .addChannelOption(opt => opt.setName('لوق-الاستقالات').setDescription('روم السجلات (اللوق)').setRequired(true))
     .setDefaultMemberPermissions(PermissionFlagsBits.Administrator),
 
   new SlashCommandBuilder()
@@ -112,6 +116,34 @@ client.on('interactionCreate', async (interaction: any) => {
     if (commandName === 'ping') {
       const latency = Math.round(client.ws.ping);
       await interaction.reply({ content: `🏓 سرعة استجابة البوت هي: **${latency}ms**`, ephemeral: true });
+    }
+
+    if (commandName === 'إعداد-الاستقالة') {
+      const title = options.getString('عنوان-الايمبد');
+      const desc = options.getString('وصف-الايمبد');
+      const requestChannel = options.getChannel('روم-الطلبات');
+      const logChannel = options.getChannel('لوق-الاستقالات');
+
+      db.prepare(`
+        UPDATE settings SET 
+          resignationLogChannelId = ?
+        WHERE guildId = ?
+      `).run(logChannel?.id, guildId);
+
+      const embed = new EmbedBuilder()
+        .setTitle(title)
+        .setDescription(desc)
+        .setColor('#2b2d31')
+        .setImage('https://cdn.discordapp.com/attachments/1373379066127716454/1480947656787492934/29c156efac6e235a.jpg?ex=69b1877c&is=69b035fc&hm=8a610c2c2c4babc6a4a91f3355412582e774148418004142c3c17e2c4e1eb9e8&');
+
+      const row = new ActionRowBuilder<any>().addComponents(
+        new ButtonBuilder()
+          .setCustomId(`request_resignation_${requestChannel?.id}`)
+          .setLabel('طــلـب اســتـقـالة')
+          .setStyle(ButtonStyle.Danger)
+      );
+
+      await interaction.reply({ embeds: [embed], components: [row] });
     }
 
     if (commandName === 'طلب-اجازة') {
@@ -181,6 +213,33 @@ client.on('interactionCreate', async (interaction: any) => {
 
       await interaction.showModal(modal);
     }
+
+    if (interaction.customId.startsWith('request_resignation_')) {
+      const guildId = interaction.guildId!;
+      const userId = interaction.user.id;
+
+      const pendingResignation = db.prepare('SELECT * FROM pending_resignations WHERE userId = ? AND guildId = ?').get(userId, guildId);
+
+      if (pendingResignation) {
+        return interaction.reply({ content: '❌ لديك بالفعل طلب استقالة معلق حالياً.', ephemeral: true });
+      }
+
+      const modal = new ModalBuilder()
+        .setCustomId(`resignation_modal_${interaction.customId.split('_')[2]}`)
+        .setTitle('طلب استقالة');
+
+      const reasonInput = new TextInputBuilder()
+        .setCustomId('resignation_reason')
+        .setLabel('سبب الاستقالة')
+        .setStyle(TextInputStyle.Paragraph)
+        .setRequired(true);
+
+      modal.addComponents(
+        new ActionRowBuilder<any>().addComponents(reasonInput)
+      );
+
+      await interaction.showModal(modal);
+    }
   }
 
   if (interaction.isModalSubmit()) {
@@ -228,9 +287,122 @@ client.on('interactionCreate', async (interaction: any) => {
         await interaction.reply({ content: '✅ تم إرسال طلبك للمسؤولين.', ephemeral: true });
       }
     }
+
+    if (interaction.customId.startsWith('resignation_modal_')) {
+      const requestChannelId = interaction.customId.split('_')[2];
+      const reason = interaction.fields.getTextInputValue('resignation_reason');
+      const channel = client.channels.cache.get(requestChannelId);
+
+      if (channel?.isTextBased()) {
+        db.prepare('INSERT OR IGNORE INTO pending_resignations (userId, guildId) VALUES (?, ?)').run(interaction.user.id, interaction.guildId);
+
+        const embed = new EmbedBuilder()
+          .setTitle('**__طــلـب اســتـقـالة جــديــد<:Bell:1480934304052679021>__**')
+          .setDescription(`
+- **مــعـلـومــات الــطــلـب<:Info:1480934636652859558>**
+
+- **الــشـخــص<:Man:1480934978513539183>: <@${interaction.user.id}>**
+
+- **الــســبـب<:question:1480935899117125704>: ${reason}**
+          `)
+          .setColor('#2b2d31')
+          .setImage('https://cdn.discordapp.com/attachments/1373379066127716454/1480938731593531493/18e728ebe6975504.png?ex=69b17f2c&is=69b02dac&hm=bcd0207fd02e2658854910f5e25a666223cda4ed72663bdc4435fc0e97f0629e&');
+
+        const select = new StringSelectMenuBuilder()
+          .setCustomId(`resignation_action_${interaction.user.id}`)
+          .setPlaceholder('خــيـارات الـطــلـب')
+          .addOptions(
+            new StringSelectMenuOptionBuilder()
+              .setLabel('قبول')
+              .setValue('accept')
+              .setEmoji('1480943220019040286'),
+            new StringSelectMenuOptionBuilder()
+              .setLabel('رفض')
+              .setValue('reject')
+              .setEmoji('1480943473606529288')
+          );
+
+        const row = new ActionRowBuilder<any>().addComponents(select);
+
+        await (channel as any).send({ embeds: [embed], components: [row] });
+        await interaction.reply({ content: '✅ تم إرسال طلب استقالتك للمسؤولين.', ephemeral: true });
+      }
+    }
   }
 
   if (interaction.isStringSelectMenu()) {
+    if (interaction.customId.startsWith('resignation_action_')) {
+      const userId = interaction.customId.split('_')[2];
+      const action = interaction.values[0];
+      const guildId = interaction.guildId!;
+      
+      const settings: any = db.prepare('SELECT * FROM settings WHERE guildId = ?').get(guildId);
+      const member = interaction.member as any;
+
+      if (!member.permissions.has(PermissionFlagsBits.Administrator) && !member.roles.cache.has(settings?.resignationManagerRoleId)) {
+        return interaction.reply({ content: '❌ ليس لديك صلاحية اتخاذ هذا القرار.', ephemeral: true });
+      }
+
+      const targetMember = await interaction.guild?.members.fetch(userId).catch(() => null);
+      
+      if (action === 'reject') {
+        db.prepare('DELETE FROM pending_resignations WHERE userId = ? AND guildId = ?').run(userId, guildId);
+        await interaction.message.delete();
+        await interaction.reply({ content: '❌ تم رفض طلب الاستقالة.', ephemeral: true });
+
+        const logChannel = client.channels.cache.get(settings?.resignationLogChannelId);
+        if (logChannel?.isTextBased()) {
+          const embed = new EmbedBuilder()
+            .setTitle(`**__ رفــض طــلـب اســتـقـالة <@${userId}>__**`)
+            .setDescription(`
+- **تــم الـرفــض بــواســطـة: <@${interaction.user.id}>**
+- **الــعـضـو: <@${userId}>**
+            `)
+            .setColor('#ff0000')
+            .setTimestamp();
+          
+          await (logChannel as any).send({ embeds: [embed] });
+          await (logChannel as any).send('https://cdn.discordapp.com/attachments/1373379066127716454/1480938731593531493/18e728ebe6975504.png?ex=69b17f2c&is=69b02dac&hm=bcd0207fd02e2658854910f5e25a666223cda4ed72663bdc4435fc0e97f0629e&');
+        }
+
+        if (targetMember) {
+          try {
+            await targetMember.send(`**نعتذر، لقد تم رفض طلب استقالتك في سيرفر ${interaction.guild?.name}**`);
+          } catch (e) {}
+        }
+        return;
+      }
+
+      if (action === 'accept') {
+        db.prepare('DELETE FROM pending_resignations WHERE userId = ? AND guildId = ?').run(userId, guildId);
+        
+        const logChannel = client.channels.cache.get(settings?.resignationLogChannelId);
+        if (logChannel?.isTextBased()) {
+          const embed = new EmbedBuilder()
+            .setTitle(`**__ قــبـول طــلـب اســتـقـالة <@${userId}>__**`)
+            .setDescription(`
+- **تــم الـقــبـول بــواســطـة: <@${interaction.user.id}>**
+- **الــعـضـو: <@${userId}>**
+            `)
+            .setColor('#00ff00')
+            .setTimestamp();
+          
+          await (logChannel as any).send({ embeds: [embed] });
+          await (logChannel as any).send('https://cdn.discordapp.com/attachments/1373379066127716454/1480938731593531493/18e728ebe6975504.png?ex=69b17f2c&is=69b02dac&hm=bcd0207fd02e2658854910f5e25a666223cda4ed72663bdc4435fc0e97f0629e&');
+        }
+
+        await interaction.message.delete();
+        await interaction.reply({ content: '✅ تم قبول الاستقالة بنجاح.', ephemeral: true });
+
+        if (targetMember) {
+          try {
+            await targetMember.send(`**لقد تم قبول استقالتك في سيرفر ${interaction.guild?.name}. نتمنى لك التوفيق!**`);
+            // Optional: Kick or remove roles? The user didn't specify, so I'll just send the message.
+          } catch (e) {}
+        }
+      }
+    }
+
     if (interaction.customId.startsWith('leave_action_')) {
       const [, , userId, durationStr] = interaction.customId.split('_');
       const action = interaction.values[0];
@@ -250,6 +422,23 @@ client.on('interactionCreate', async (interaction: any) => {
         db.prepare('DELETE FROM pending_requests WHERE userId = ? AND guildId = ?').run(userId, guildId);
         await interaction.message.delete();
         await interaction.reply({ content: '❌ تم رفض الطلب.', ephemeral: true });
+
+        // Logging rejection
+        const logChannel = client.channels.cache.get(settings?.leaveLogChannelId);
+        if (logChannel?.isTextBased()) {
+          const embed = new EmbedBuilder()
+            .setTitle(`**__ رفــض طــلـب إجــازة <@${userId}>__**`)
+            .setDescription(`
+- **تــم الـرفــض بــواســطـة: <@${interaction.user.id}>**
+- **الــعـضـو: <@${userId}>**
+            `)
+            .setColor('#ff0000')
+            .setTimestamp();
+          
+          await (logChannel as any).send({ embeds: [embed] });
+          await (logChannel as any).send('https://cdn.discordapp.com/attachments/1373379066127716454/1480938731593531493/18e728ebe6975504.png?ex=69b17f2c&is=69b02dac&hm=bcd0207fd02e2658854910f5e25a666223cda4ed72663bdc4435fc0e97f0629e&');
+        }
+
         try {
           await targetMember.send(`**نعتذر، لقد تم رفض طلب إجازتك في سيرفر ${interaction.guild?.name}**`);
         } catch (e) {}
@@ -313,6 +502,24 @@ client.on('interactionCreate', async (interaction: any) => {
           VALUES (?, ?, ?, ?, ?, ?, ?)
         `).run(guildId, userId, originalNickname, endTimestamp, leaveMsgId, settings?.leavePublicChannelId, imgMsgId);
 
+        // Logging acceptance
+        const logChannel = client.channels.cache.get(settings?.leaveLogChannelId);
+        if (logChannel?.isTextBased()) {
+          const embed = new EmbedBuilder()
+            .setTitle(`**__ قــبـول طــلـب إجــازة <@${userId}>__**`)
+            .setDescription(`
+- **تــم الـقــبـول بــواســطـة: <@${interaction.user.id}>**
+- **الــعـضـو: <@${userId}>**
+- **الــمـدة: ${durationStr}**
+- **تــنـتـهـي فـي: <t:${Math.floor(endTimestamp / 1000)}:F>**
+            `)
+            .setColor('#00ff00')
+            .setTimestamp();
+          
+          await (logChannel as any).send({ embeds: [embed] });
+          await (logChannel as any).send('https://cdn.discordapp.com/attachments/1373379066127716454/1480938731593531493/18e728ebe6975504.png?ex=69b17f2c&is=69b02dac&hm=bcd0207fd02e2658854910f5e25a666223cda4ed72663bdc4435fc0e97f0629e&');
+        }
+
         await interaction.message.delete();
         await interaction.reply({ content: '✅ تم قبول الطلب بنجاح.', ephemeral: true });
 
@@ -345,11 +552,17 @@ client.on('interactionCreate', async (interaction: any) => {
       const channel = client.channels.cache.get(leave.leaveChannelId);
       if (channel?.isTextBased()) {
         try {
-          const msg = await (channel as any).messages.fetch(leave.leaveMessageId);
-          await msg.delete();
-          const imgMsg = await (channel as any).messages.fetch(leave.imageMessageId);
-          await imgMsg.delete();
-        } catch (e) {}
+          if (leave.leaveMessageId) {
+            const msg = await (channel as any).messages.fetch(leave.leaveMessageId).catch(() => null);
+            if (msg) await msg.delete().catch(() => null);
+          }
+          if (leave.imageMessageId) {
+            const imgMsg = await (channel as any).messages.fetch(leave.imageMessageId).catch(() => null);
+            if (imgMsg) await imgMsg.delete().catch(() => null);
+          }
+        } catch (e) {
+          console.error('Error deleting leave messages:', e);
+        }
       }
 
       const logChannel = client.channels.cache.get(settings?.leaveLogChannelId);
@@ -393,10 +606,14 @@ async function checkExpiredLeaves() {
     const channel = client.channels.cache.get(leave.leaveChannelId);
     if (channel?.isTextBased()) {
       try {
-        const msg = await (channel as any).messages.fetch(leave.leaveMessageId);
-        await msg.delete();
-        const imgMsg = await (channel as any).messages.fetch(leave.imageMessageId);
-        await imgMsg.delete();
+        if (leave.leaveMessageId) {
+          const msg = await (channel as any).messages.fetch(leave.leaveMessageId).catch(() => null);
+          if (msg) await msg.delete().catch(() => null);
+        }
+        if (leave.imageMessageId) {
+          const imgMsg = await (channel as any).messages.fetch(leave.imageMessageId).catch(() => null);
+          if (imgMsg) await imgMsg.delete().catch(() => null);
+        }
       } catch (e) {}
     }
 

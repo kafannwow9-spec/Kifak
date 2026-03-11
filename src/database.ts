@@ -9,6 +9,7 @@ db.exec(`
     leaveManagerRoleId TEXT,
     resignationManagerRoleId TEXT,
     leaveLogChannelId TEXT,
+    resignationLogChannelId TEXT,
     leavePublicChannelId TEXT
   )
 `);
@@ -30,6 +31,14 @@ db.exec(`
 // Pending requests table
 db.exec(`
   CREATE TABLE IF NOT EXISTS pending_requests (
+    userId TEXT PRIMARY KEY,
+    guildId TEXT
+  )
+`);
+
+// Pending resignations table
+db.exec(`
+  CREATE TABLE IF NOT EXISTS pending_resignations (
     userId TEXT PRIMARY KEY,
     guildId TEXT
   )
