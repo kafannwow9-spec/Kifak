@@ -44,4 +44,16 @@ db.exec(`
   )
 `);
 
+// Permanent messages table
+db.exec(`
+  CREATE TABLE IF NOT EXISTS permanent_messages (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    guildId TEXT,
+    channelId TEXT,
+    content TEXT,
+    isActive INTEGER DEFAULT 1,
+    lastMessageId TEXT
+  )
+`);
+
 export default db;

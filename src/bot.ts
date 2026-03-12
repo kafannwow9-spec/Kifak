@@ -79,6 +79,18 @@ const commands = [
   new SlashCommandBuilder()
     .setName('ping')
     .setDescription('عرض سرعة استجابة البوت'),
+
+  new SlashCommandBuilder()
+    .setName('الرسائل-الدائمة')
+    .setDescription('عرض وإدارة الرسائل الدائمة')
+    .setDefaultMemberPermissions(PermissionFlagsBits.Administrator),
+
+  new SlashCommandBuilder()
+    .setName('إضافة-كلمات')
+    .setDescription('إضافة رسالة دائمة لروم معين')
+    .addChannelOption(opt => opt.setName('الروم').setDescription('الروم الذي ستظهر فيه الرسالة').setRequired(true))
+    .addStringOption(opt => opt.setName('الرسالة').setDescription('محتوى الرسالة').setRequired(true))
+    .setDefaultMemberPermissions(PermissionFlagsBits.Administrator),
 ].map(command => command.toJSON());
 
 // Register commands
@@ -141,6 +153,63 @@ client.on('interactionCreate', async (interaction: any) => {
     if (commandName === 'ping') {
       const latency = Math.round(client.ws.ping);
       await interaction.reply({ content: `🏓 سرعة استجابة البوت هي: **${latency}ms**`, ephemeral: true });
+    }
+
+    if (commandName === 'الرسائل-الدائمة') {
+      const messages: any[] = db.prepare('SELECT * FROM permanent_messages WHERE guildId = ?').all(guildId);
+      
+      let description = '';
+      if (messages.length === 0) {
+        description = 'لا توجد رسائل دائمة مضافة حالياً.';
+      } else {
+        messages.forEach(msg => {
+          description += `- ${msg.content}\n← **فـي <#${msg.channelId}>**\n\n`;
+        });
+      }
+      description += `*يــمـكــنـك إضــافـة رســائــل عــبــر /إضافة-كلمات`;
+
+      const embed = new EmbedBuilder()
+        .setTitle('**__الــرســائـل الــدائـمــة الـمــضـافــة<:accept:1480943220019040286>__**')
+        .setDescription(description)
+        .setColor('#2b2d31')
+        .setImage('https://cdn.discordapp.com/attachments/1453338187740221504/1481644301183094795/84b7fd9ecfc22c82.jpg?ex=69b41049&is=69b2bec9&hm=611a5e745dd404f1d554136390e2918a5f8d3bf6658fa56776f1f58145c5e6f1&');
+
+      const row = new ActionRowBuilder<any>().addComponents(
+        new ButtonBuilder()
+          .setCustomId('remove_words_btn')
+          .setLabel('إزالــة كــلــمـات')
+          .setEmoji('1481646503628898385')
+          .setStyle(ButtonStyle.Secondary),
+        new ButtonBuilder()
+          .setCustomId('stop_word_btn')
+          .setLabel('إيــقــاف كــلــمـة')
+          .setEmoji('1481647211803709466')
+          .setStyle(ButtonStyle.Secondary),
+        new ButtonBuilder()
+          .setCustomId('active_word_btn')
+          .setLabel('تــفــعـيـل كــلــمـة')
+          .setEmoji('1481647631234109593')
+          .setStyle(ButtonStyle.Secondary)
+      );
+
+      await interaction.reply({ embeds: [embed], components: [row] });
+    }
+
+    if (commandName === 'إضافة-كلمات') {
+      const channel = options.getChannel('الروم');
+      const content = options.getString('الرسالة');
+
+      const result = db.prepare('INSERT INTO permanent_messages (guildId, channelId, content) VALUES (?, ?, ?)').run(guildId, channel?.id, content);
+      
+      // Send initial message
+      try {
+        const msg = await (channel as any).send(content);
+        db.prepare('UPDATE permanent_messages SET lastMessageId = ? WHERE id = ?').run(msg.id, result.lastInsertRowid);
+      } catch (e) {
+        console.error('Failed to send initial permanent message:', e);
+      }
+
+      await interaction.reply({ content: '✅ تم إضافة الرسالة الدائمة بنجاح.', ephemeral: true });
     }
 
     if (commandName === 'إرسال-خاص') {
@@ -380,6 +449,54 @@ client.on('interactionCreate', async (interaction: any) => {
         ephemeral: true 
       });
     }
+
+    if (interaction.customId === 'remove_words_btn') {
+      const messages: any[] = db.prepare('SELECT * FROM permanent_messages WHERE guildId = ?').all(interaction.guildId);
+      if (messages.length === 0) return interaction.reply({ content: '❌ لا توجد رسائل لإزالتها.', ephemeral: true });
+
+      const select = new StringSelectMenuBuilder()
+        .setCustomId('remove_word_select')
+        .setPlaceholder('اختر الكلمة لإزالتها')
+        .addOptions(messages.map(m => ({
+          label: m.content.substring(0, 100),
+          value: m.id.toString()
+        })));
+
+      const row = new ActionRowBuilder<any>().addComponents(select);
+      await interaction.reply({ content: 'اختر الكلمة التي تريد إزالتها:', components: [row], ephemeral: true });
+    }
+
+    if (interaction.customId === 'stop_word_btn') {
+      const messages: any[] = db.prepare('SELECT * FROM permanent_messages WHERE guildId = ? AND isActive = 1').all(interaction.guildId);
+      if (messages.length === 0) return interaction.reply({ content: '❌ لا توجد رسائل مفعلة لإيقافها.', ephemeral: true });
+
+      const select = new StringSelectMenuBuilder()
+        .setCustomId('stop_word_select')
+        .setPlaceholder('اختر الكلمة لإيقافها')
+        .addOptions(messages.map(m => ({
+          label: m.content.substring(0, 100),
+          value: m.id.toString()
+        })));
+
+      const row = new ActionRowBuilder<any>().addComponents(select);
+      await interaction.reply({ content: 'اختر الكلمة التي تريد إيقافها:', components: [row], ephemeral: true });
+    }
+
+    if (interaction.customId === 'active_word_btn') {
+      const messages: any[] = db.prepare('SELECT * FROM permanent_messages WHERE guildId = ? AND isActive = 0').all(interaction.guildId);
+      if (messages.length === 0) return interaction.reply({ content: '❌ لا توجد رسائل متوقفة لتفعيلها.', ephemeral: true });
+
+      const select = new StringSelectMenuBuilder()
+        .setCustomId('active_word_select')
+        .setPlaceholder('اختر الكلمة لتفعيلها')
+        .addOptions(messages.map(m => ({
+          label: m.content.substring(0, 100),
+          value: m.id.toString()
+        })));
+
+      const row = new ActionRowBuilder<any>().addComponents(select);
+      await interaction.reply({ content: 'اختر الكلمة التي تريد تفعيلها:', components: [row], ephemeral: true });
+    }
   }
 
   if (interaction.isModalSubmit()) {
@@ -482,6 +599,24 @@ client.on('interactionCreate', async (interaction: any) => {
   }
 
   if (interaction.isStringSelectMenu()) {
+    if (interaction.customId === 'remove_word_select') {
+      const id = interaction.values[0];
+      db.prepare('DELETE FROM permanent_messages WHERE id = ?').run(id);
+      await interaction.update({ content: '✅ تم إزالة الكلمة بنجاح.', components: [] });
+    }
+
+    if (interaction.customId === 'stop_word_select') {
+      const id = interaction.values[0];
+      db.prepare('UPDATE permanent_messages SET isActive = 0 WHERE id = ?').run(id);
+      await interaction.update({ content: '✅ تم إيقاف الكلمة بنجاح.', components: [] });
+    }
+
+    if (interaction.customId === 'active_word_select') {
+      const id = interaction.values[0];
+      db.prepare('UPDATE permanent_messages SET isActive = 1 WHERE id = ?').run(id);
+      await interaction.update({ content: '✅ تم تفعيل الكلمة بنجاح.', components: [] });
+    }
+
     if (interaction.customId.startsWith('resignation_action_')) {
       const userId = interaction.customId.split('_')[2];
       const action = interaction.values[0];
@@ -747,5 +882,26 @@ async function checkExpiredLeaves() {
     db.prepare('DELETE FROM active_leaves WHERE id = ?').run(leave.id);
   }
 }
+
+client.on('messageCreate', async (message: any) => {
+  if (!message.guild || message.author.bot) return;
+
+  const permMsgs: any[] = db.prepare('SELECT * FROM permanent_messages WHERE guildId = ? AND channelId = ? AND isActive = 1').all(message.guild.id, message.channel.id);
+  
+  for (const permMsg of permMsgs) {
+    try {
+      if (permMsg.lastMessageId) {
+        const lastMsg = await message.channel.messages.fetch(permMsg.lastMessageId).catch(() => null);
+        if (lastMsg) {
+          await lastMsg.delete().catch(() => null);
+        }
+      }
+      const newMsg = await message.channel.send(permMsg.content);
+      db.prepare('UPDATE permanent_messages SET lastMessageId = ? WHERE id = ?').run(newMsg.id, permMsg.id);
+    } catch (e) {
+      console.error('Error handling permanent message:', e);
+    }
+  }
+});
 
 client.login(TOKEN);
