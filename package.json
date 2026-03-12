@@ -3,9 +3,10 @@
   "private": true,
   "version": "0.0.0",
   "type": "module",
+  "main": "src/bot.ts",
   "scripts": {
-    "dev": "tsx server.ts",
-    "start": "node --experimental-strip-types server.ts",
+    "dev": "tsx src/bot.ts",
+    "start": "tsx src/bot.ts",
     "build": "vite build",
     "preview": "vite preview",
     "clean": "rm -rf dist",
