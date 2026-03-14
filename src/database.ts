@@ -10,7 +10,8 @@ db.exec(`
     resignationManagerRoleId TEXT,
     leaveLogChannelId TEXT,
     resignationLogChannelId TEXT,
-    leavePublicChannelId TEXT
+    leavePublicChannelId TEXT,
+    autoRolesEnabled INTEGER DEFAULT 0
   )
 `);
 

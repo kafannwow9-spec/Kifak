@@ -19,7 +19,6 @@ const {
 } = pkg;
 import db from './database.ts';
 import dotenv from 'dotenv';
-import { GoogleGenAI } from "@google/genai";
 
 dotenv.config();
 
@@ -34,9 +33,6 @@ const client = new Client({
 });
 
 const TOKEN = process.env.DISCORD_TOKEN;
-const GEMINI_KEY = process.env.GEMINI_API_KEY;
-
-const genAI = GEMINI_KEY ? new GoogleGenAI({ apiKey: GEMINI_KEY }) : null;
 
 if (!TOKEN) {
   console.error("❌ ERROR: DISCORD_TOKEN is not defined in environment variables!");
@@ -97,7 +93,32 @@ const commands = [
     .addChannelOption(opt => opt.setName('الروم').setDescription('الروم الذي ستظهر فيه الرسالة').setRequired(true))
     .addStringOption(opt => opt.setName('الرسالة').setDescription('محتوى الرسالة').setRequired(true))
     .setDefaultMemberPermissions(PermissionFlagsBits.Administrator),
+
+  new SlashCommandBuilder()
+    .setName('إعداد-الرتب-التلقائية')
+    .setDescription('تفعيل أو إطفاء الرتب التلقائية')
+    .addBooleanOption(opt => opt.setName('تفعيل').setDescription('تفعيل أو إطفاء الميزة').setRequired(true))
+    .setDefaultMemberPermissions(PermissionFlagsBits.Administrator),
 ].map(command => command.toJSON());
+
+const AUTO_ROLES_GUILD_ID = '1197633973204025484';
+const AUTO_ROLES_CATEGORY_ID = '1395727825037688852';
+const PROBOT_ID = '282859044593598464';
+const CREDIT_TARGET_ID = '1187761955184836615';
+
+const AUTO_ROLES_DATA = [
+  { id: '1382845983397908671', price: 410527 },
+  { id: '1335918247874265201', price: 336843 },
+  { id: '1335890502725140480', price: 284211 },
+  { id: '1335917280885997600', price: 221053 },
+  { id: '1276650019742683197', price: 200001 },
+  { id: '1276964537723125821', price: 147369 },
+  { id: '1278293628644753478', price: 115790 },
+  { id: '1276646535827816448', price: 73685 },
+  { id: '1276648519176028242', price: 31579 },
+];
+
+const pendingAutoRolePurchases = new Map<string, { userId: string, roleId: string, price: number }>();
 
 // Register commands
 async function registerCommands(guildId: string) {
@@ -123,7 +144,87 @@ client.on('guildCreate', (guild) => {
   registerCommands(guild.id);
 });
 
+client.on('channelCreate', async (channel: any) => {
+  if (!channel.guild || channel.guild.id !== AUTO_ROLES_GUILD_ID) return;
+  if (channel.parentId !== AUTO_ROLES_CATEGORY_ID) return;
+
+  const settings: any = db.prepare('SELECT autoRolesEnabled FROM settings WHERE guildId = ?').get(channel.guild.id);
+  if (!settings || !settings.autoRolesEnabled) return;
+
+  const description = `
+<@&1382845983397908671> 
+** مميزاتها : لمؤثرات الصوتية خارج السرفر / شكل جميع لي الرتبه / ارسال صورة / ايموحيات في جميع الشاتات وتخفيض 30% على اي شي **
+**__السعر = 390k __**
+ــــــــــــــــــــــــــــــــــــــــــــــــــــــــــ
+<@&1335918247874265201> 
+**مميزاتها : ارسال / وفيديوهات / صور في جميع الشاتات / تغير لون رتبتك وستكون رتبتك مميز / خصم %30 تخفيض في اي شي تشتري في السيرفر **
+**__السعر = 320k __**
+ـــــــــــــــــــــــــــــــــــــــــــــــــــــــــ
+<@&1335890502725140480>
+**مميزاتها : ارسال صور / فيديوات في جميع الشاتات / تغير لون رتبتك ستكون مميز في السيرفر مع خصم %20 تخفيض في اي شي تشتريه في السيرفر **
+**__ السعر = 270k __**
+ــــــــــــــــــــــــــــــــــــــــــــــــــــــــــ
+<@&1335917280885997600>
+**مميزاتها : ارسال صور / فيديوات في جميع الشاتات / تغير لون رتبتك مع خصم %10 تخفيض في اي شي تشتري من سيرفر**
+**__ السعر = 210k __**
+ــــــــــــــــــــــــــــــــــــــــــــــــــــــــــ
+<@&1276650019742683197>
+**مميزاتها : ارسال صور / فيدوهات في جميع الشاتات **
+**__السعر = 190k __**
+──────────────────────ـ───────
+<@&1276964537723125821> 
+・**مميزاتها تخفض سعر أي شئ تشتريه في المتجر بــــــي %20 🔥**
+・**__السعر 140k __**
+───────────────────────ـ─────── 
+  `;
+
+  const embed = new EmbedBuilder()
+    .setTitle('يــرجـى اخــتـيــار الـرتــبـة')
+    .setDescription(description)
+    .setColor('#2b2d31')
+    .setImage('https://cdn.discordapp.com/attachments/1482148324923674976/1482174247068762193/b18b264a738f7cb7.jpg?ex=69b5fdd5&is=69b4ac55&hm=2989113b2f46820ca6d44f70afb35e8023ca59ec3b8839c0860661f7a0aae2eb&');
+
+  const select = new StringSelectMenuBuilder()
+    .setCustomId('auto_role_select')
+    .setPlaceholder('اختر الرتبة التي تريد شراءها')
+    .addOptions(
+      AUTO_ROLES_DATA.map(role => {
+        const guildRole = channel.guild.roles.cache.get(role.id);
+        return new StringSelectMenuOptionBuilder()
+          .setLabel(guildRole ? guildRole.name : `رتبة ${role.id}`)
+          .setDescription(`السعر: ${role.price}`)
+          .setValue(role.id);
+      })
+    );
+
+  const row = new ActionRowBuilder<any>().addComponents(select);
+
+  await channel.send({ embeds: [embed], components: [row] });
+});
+
 client.on('interactionCreate', async (interaction: any) => {
+  if (interaction.isStringSelectMenu()) {
+    if (interaction.customId === 'auto_role_select') {
+      const roleId = interaction.values[0];
+      const roleData = AUTO_ROLES_DATA.find(r => r.id === roleId);
+      if (!roleData) return;
+
+      const member = interaction.member;
+      if (member.roles.cache.has(roleId)) {
+        return interaction.reply({ content: '❌ لديك هذه الرتبة بالفعل.', ephemeral: true });
+      }
+
+      pendingAutoRolePurchases.set(interaction.channelId, {
+        userId: interaction.user.id,
+        roleId: roleId,
+        price: roleData.price
+      });
+
+      await interaction.reply({ content: `✅ لقد اخترت الرتبة <@&${roleId}>.\nيرجى تحويل المبلغ المطلوب عن طريق كتابة الأمر التالي:`, ephemeral: false });
+      await interaction.channel.send(`#credit ${CREDIT_TARGET_ID} ${roleData.price}`);
+    }
+  }
+
   if (interaction.isAutocomplete()) {
     if (interaction.commandName === 'إرسال-رسالة') {
       const channel = interaction.channel;
@@ -140,6 +241,20 @@ client.on('interactionCreate', async (interaction: any) => {
   if (interaction.isChatInputCommand()) {
     const { commandName, guildId, options } = interaction;
     if (!guildId) return;
+
+    if (commandName === 'إعداد-الرتب-التلقائية') {
+      if (guildId !== AUTO_ROLES_GUILD_ID) {
+        return interaction.reply({ content: '❌ هذا الأمر متاح فقط في سيرفر معين.', ephemeral: true });
+      }
+      const enabled = options.getBoolean('تفعيل');
+      db.prepare(`
+        INSERT INTO settings (guildId, autoRolesEnabled)
+        VALUES (?, ?)
+        ON CONFLICT(guildId) DO UPDATE SET autoRolesEnabled = ?
+      `).run(guildId, enabled ? 1 : 0, enabled ? 1 : 0);
+
+      await interaction.reply({ content: `✅ تم ${enabled ? 'تفعيل' : 'إطفاء'} الرتب التلقائية بنجاح.`, ephemeral: true });
+    }
 
     if (commandName === 'مسؤولين-الطلبات') {
       const leaveRole = options.getRole('رتبة-مسؤول-الاجازات');
@@ -892,174 +1007,36 @@ async function checkExpiredLeaves() {
 }
 
 client.on('messageCreate', async (message: any) => {
-  if (!message.guild || message.author.bot) return;
+  if (!message.guild) return;
 
-  // AI Administrative Assistant
-  if (message.mentions.has(client.user!) && message.member?.permissions.has(PermissionFlagsBits.Administrator)) {
-    if (!genAI) {
-      return message.reply("❌ عذراً، لم يتم إعداد مفتاح الذكاء الاصطناعي (GEMINI_API_KEY) في البيئة.");
-    }
-
-    const prompt = `أنت مساعد إداري محترف لسيرفر ديسكورد. قام مستخدم لديه صلاحيات المسؤول (Administrator) بإرسال رسالة تذكر البوت. مهمتك هي استخراج الإجراء الإداري المقصود بدقة.
-
-الإجراءات الممكنة (يجب الرد بـ JSON فقط):
-- TIMEOUT: { "action": "TIMEOUT", "target_id": "ID", "duration_minutes": 10, "reason": "سبب" }
-- BAN: { "action": "BAN", "target_id": "ID", "reason": "سبب" }
-- KICK: { "action": "KICK", "target_id": "ID", "reason": "سبب" }
-- UNBAN: { "action": "UNBAN", "target_id": "ID", "reason": "سبب" }
-- UNTIMEOUT: { "action": "UNTIMEOUT", "target_id": "ID" }
-- CREATE_CHANNEL: { "action": "CREATE_CHANNEL", "name": "اسم", "type": "text|voice|category" }
-- EDIT_CHANNEL: { "action": "EDIT_CHANNEL", "channel_id": "ID", "name": "اسم جديد", "topic": "وصف" }
-- DELETE_CHANNEL: { "action": "DELETE_CHANNEL", "channel_id": "ID" }
-- CREATE_ROLE: { "action": "CREATE_ROLE", "name": "اسم", "color": "HEX_COLOR" }
-- EDIT_ROLE: { "action": "EDIT_ROLE", "role_id": "ID", "name": "اسم جديد", "color": "HEX_COLOR" }
-- DELETE_ROLE: { "action": "DELETE_ROLE", "role_id": "ID" }
-- ADD_ROLE: { "action": "ADD_ROLE", "target_id": "ID", "role_id": "ID" }
-- REMOVE_ROLE: { "action": "REMOVE_ROLE", "target_id": "ID", "role_id": "ID" }
-- SET_NICKNAME: { "action": "SET_NICKNAME", "target_id": "ID", "nickname": "اللقب الجديد" }
-- CHANNEL_PERMS: { "action": "CHANNEL_PERMS", "channel_id": "ID", "target_id": "ID_ROLE_OR_USER", "allow": ["PERMISSION_NAME"], "deny": ["PERMISSION_NAME"] }
-
-محتوى الرسالة: ${message.content}
-الأعضاء المذكورون: ${message.mentions.users.map((u: any) => `${u.username} (${u.id})`).join(', ')}
-الرتب المذكورة: ${message.mentions.roles.map((r: any) => `${r.name} (${r.id})`).join(', ')}
-القنوات المذكورة: ${message.mentions.channels.map((c: any) => `${c.name} (${c.id})`).join(', ')}
-
-قم بالرد فقط بكائن JSON. إذا لم يكن هناك إجراء واضح، رد بـ { "action": "NONE" }.`;
-
-    try {
-      const result = await genAI.models.generateContent({
-        model: "gemini-3-flash-preview",
-        contents: [{ parts: [{ text: prompt }] }],
-      });
-      const responseText = result.text.replace(/```json|```/g, '').trim();
-      const aiAction = JSON.parse(responseText);
-
-      if (aiAction.action === 'NONE') return;
-
-      const reason = aiAction.reason || "إجراء إداري عبر الذكاء الاصطناعي";
-
-      switch (aiAction.action) {
-        case 'TIMEOUT': {
-          const target = await message.guild.members.fetch(aiAction.target_id).catch(() => null);
-          if (!target) return message.reply("❌ لم أجد العضو.");
-          await target.timeout((aiAction.duration_minutes || 10) * 60000, reason);
-          await message.reply(`✅ تم إعطاء تايم أوت لـ <@${aiAction.target_id}>.`);
-          break;
-        }
-        case 'BAN':
-          await message.guild.members.ban(aiAction.target_id, { reason });
-          await message.reply(`✅ تم حظر <@${aiAction.target_id}>.`);
-          break;
-        case 'KICK': {
-          const target = await message.guild.members.fetch(aiAction.target_id).catch(() => null);
-          if (target) await target.kick(reason);
-          await message.reply(`✅ تم طرد <@${aiAction.target_id}>.`);
-          break;
-        }
-        case 'UNBAN':
-          await message.guild.members.unban(aiAction.target_id, reason);
-          await message.reply(`✅ تم إلغاء حظر <@${aiAction.target_id}>.`);
-          break;
-        case 'UNTIMEOUT': {
-          const target = await message.guild.members.fetch(aiAction.target_id).catch(() => null);
-          if (target) await target.timeout(null, reason);
-          await message.reply(`✅ تم إلغاء التايم أوت لـ <@${aiAction.target_id}>.`);
-          break;
-        }
-        case 'CREATE_CHANNEL': {
-          const typeMap: any = { 'text': 0, 'voice': 2, 'category': 4 };
-          const channel = await message.guild.channels.create({
-            name: aiAction.name,
-            type: typeMap[aiAction.type] || 0,
-            reason
-          });
-          await message.reply(`✅ تم إنشاء القناة <#${channel.id}>.`);
-          break;
-        }
-        case 'EDIT_CHANNEL': {
-          const channel = await message.guild.channels.fetch(aiAction.channel_id).catch(() => null);
-          if (!channel) return message.reply("❌ لم أجد القناة.");
-          await (channel as any).edit({
-            name: aiAction.name || undefined,
-            topic: aiAction.topic || undefined,
-            reason
-          });
-          await message.reply(`✅ تم تعديل القناة <#${channel.id}>.`);
-          break;
-        }
-        case 'DELETE_CHANNEL': {
-          const channel = await message.guild.channels.fetch(aiAction.channel_id).catch(() => null);
-          if (channel) await channel.delete(reason);
-          await message.reply(`✅ تم حذف القناة.`);
-          break;
-        }
-        case 'CREATE_ROLE': {
-          const role = await message.guild.roles.create({
-            name: aiAction.name,
-            color: aiAction.color || undefined,
-            reason
-          });
-          await message.reply(`✅ تم إنشاء الرتبة <@&${role.id}>.`);
-          break;
-        }
-        case 'EDIT_ROLE': {
-          const role = await message.guild.roles.fetch(aiAction.role_id).catch(() => null);
-          if (!role) return message.reply("❌ لم أجد الرتبة.");
-          await role.edit({
-            name: aiAction.name || undefined,
-            color: aiAction.color || undefined,
-            reason
-          });
-          await message.reply(`✅ تم تعديل الرتبة <@&${role.id}>.`);
-          break;
-        }
-        case 'DELETE_ROLE': {
-          const role = await message.guild.roles.fetch(aiAction.role_id).catch(() => null);
-          if (role) await role.delete(reason);
-          await message.reply(`✅ تم حذف الرتبة.`);
-          break;
-        }
-        case 'ADD_ROLE': {
-          const member = await message.guild.members.fetch(aiAction.target_id).catch(() => null);
-          if (member) await member.roles.add(aiAction.role_id, reason);
-          await message.reply(`✅ تم إضافة الرتبة لـ <@${aiAction.target_id}>.`);
-          break;
-        }
-        case 'REMOVE_ROLE': {
-          const member = await message.guild.members.fetch(aiAction.target_id).catch(() => null);
-          if (member) await member.roles.remove(aiAction.role_id, reason);
-          await message.reply(`✅ تم إزالة الرتبة من <@${aiAction.target_id}>.`);
-          break;
-        }
-        case 'SET_NICKNAME': {
-          const member = await message.guild.members.fetch(aiAction.target_id).catch(() => null);
-          if (member) await member.setNickname(aiAction.nickname, reason);
-          await message.reply(`✅ تم تغيير لقب <@${aiAction.target_id}>.`);
-          break;
-        }
-        case 'CHANNEL_PERMS': {
-          const channel = await message.guild.channels.fetch(aiAction.channel_id).catch(() => null);
-          if (!channel) return message.reply("❌ لم أجد القناة.");
+  // ProBot Payment Detection for Auto Roles
+  if (message.author.id === PROBOT_ID && pendingAutoRolePurchases.has(message.channel.id)) {
+    const purchase = pendingAutoRolePurchases.get(message.channel.id)!;
+    // Regex for ProBot transfer confirmation
+    // Example: ـ khaldoun, قام بتحويل $30,000 لـ <@!1187761955184836615>
+    const transferRegex = /قام بتحويل \$([\d,]+) لـ <@!?1187761955184836615>/;
+    const match = message.content.match(transferRegex);
+    
+    if (match) {
+      const amount = parseInt(match[1].replace(/,/g, ''));
+      if (amount >= purchase.price && message.content.includes(`<@!${purchase.userId}>`) || message.content.includes(`<@${purchase.userId}>`)) {
+        const member = await message.guild.members.fetch(purchase.userId).catch(() => null);
+        if (member) {
+          await member.roles.add(purchase.roleId).catch(console.error);
+          await message.channel.send(`✅ تم شراء الرتبة <@&${purchase.roleId}> بنجاح لـ <@${purchase.userId}>.`);
           
-          const allow: any[] = (aiAction.allow || []).map((p: string) => PermissionFlagsBits[p as keyof typeof PermissionFlagsBits]).filter(Boolean);
-          const deny: any[] = (aiAction.deny || []).map((p: string) => PermissionFlagsBits[p as keyof typeof PermissionFlagsBits]).filter(Boolean);
-
-          await (channel as any).permissionOverwrites.edit(aiAction.target_id, {
-            ...Object.fromEntries(allow.map(p => [p, true])),
-            ...Object.fromEntries(deny.map(p => [p, false])),
-          }, { reason });
+          pendingAutoRolePurchases.delete(message.channel.id);
           
-          await message.reply(`✅ تم تحديث صلاحيات القناة <#${channel.id}>.`);
-          break;
+          // Delete channel after 5 seconds
+          setTimeout(async () => {
+            await message.channel.delete().catch(() => null);
+          }, 5000);
         }
-        default:
-          break;
       }
-    } catch (error) {
-      console.error("AI Error:", error);
-      await message.reply("❌ حدث خطأ أثناء تنفيذ الإجراء. تأكد من صحة الطلب وصلاحيات البوت.");
     }
   }
+
+  if (message.author.bot) return;
 
   const permMsgs: any[] = db.prepare('SELECT * FROM permanent_messages WHERE guildId = ? AND channelId = ? AND isActive = 1').all(message.guild.id, message.channel.id);
   
